@@ -4,17 +4,17 @@ the fraction of regulation time remaining (portion_left).
 
 ESPN `detail` examples for NHL:
   Pre:          "7:00 PM ET"
-  In-period:    "1st 18:32", "2nd 5:01", "3rd 0:22"
+  In-period:    "16:46 - 1st", "5:01 - 2nd", "0:22 - 3rd"
   Intermission: "End of 1st", "End of 2nd", "Intermission"
-  OT:           "OT 4:32"
+  OT:           "4:32 - OT"
   Final:        "Final", "Final/OT", "Final/SO"
 """
 
 import re
 
-_PERIOD_RE = re.compile(r"^(1st|2nd|3rd)\s+(\d+):(\d+)$", re.IGNORECASE)
+_PERIOD_RE = re.compile(r"^(\d+):(\d+)\s*-\s*(1st|2nd|3rd)$", re.IGNORECASE)
 _END_RE    = re.compile(r"^End of (1st|2nd|3rd)$", re.IGNORECASE)
-_OT_RE     = re.compile(r"^OT\s+\d+:\d+$", re.IGNORECASE)
+_OT_RE     = re.compile(r"^\d+:\d+\s*-\s*OT$", re.IGNORECASE)
 
 _PERIOD_NUM = {"1st": 1, "2nd": 2, "3rd": 3}
 _PERIOD_SEC = 1200  # 20 minutes per period
@@ -41,11 +41,11 @@ def parse_portion_left(detail: str, state: str) -> float | None:
     # Live game
     d = detail.strip()
 
-    # In-period: "2nd 14:32"
+    # In-period: "14:32 - 2nd"
     m = _PERIOD_RE.match(d)
     if m:
-        period = _PERIOD_NUM[m.group(1).capitalize()]
-        mins, secs = int(m.group(2)), int(m.group(3))
+        period = _PERIOD_NUM[m.group(3).capitalize()]
+        mins, secs = int(m.group(1)), int(m.group(2))
         secs_in_period = mins * 60 + secs          # time left in this period
         elapsed = (period - 1) * _PERIOD_SEC + (_PERIOD_SEC - secs_in_period)
         remaining = _REG_SEC - elapsed
