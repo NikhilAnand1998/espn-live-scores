@@ -55,6 +55,32 @@ def compute_win_prob(
     return win + 0.5 * draw
 
 
+def solve_home_lambda(
+    target_win_prob: float,
+    expected_goals: float,
+    tol: float = 1e-6,
+) -> float:
+    """
+    Binary search for the home_lambda (in [0,1]) such that
+    compute_win_prob(0, 0, E*h, E*(1-h)) == target_win_prob.
+
+    Monotonic in home_lambda so bisection converges in ~50 iterations.
+    """
+    lo, hi = 0.001, 0.999
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lam_h = expected_goals * mid
+        lam_a = expected_goals * (1.0 - mid)
+        p = compute_win_prob(0, 0, lam_h, lam_a)
+        if p < target_win_prob:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            break
+    return (lo + hi) / 2
+
+
 def goal_probabilities(
     home_score: int,
     away_score: int,
@@ -84,7 +110,7 @@ def goal_probabilities(
     if expected_goals is None:
         expected_goals = config.EXPECTED_TOTAL_GOALS
     if home_lambda is None:
-        home_lambda = config.HOME_GOAL_LAMBDA
+        home_lambda = solve_home_lambda(config.HOME_WIN_PROB, expected_goals)
 
     away_lambda = 1.0 - home_lambda
     lam_home = expected_goals * home_lambda * max(portion_left, 0.0)

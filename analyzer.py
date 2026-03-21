@@ -72,7 +72,7 @@ def analyze(game_state: dict, home_price: int | None, away_price: int | None) ->
     _print_kelly(f"  YES_{home_abbr} @ {home_price}¢", home_kelly)
     _print_kelly(f"  YES_{away_abbr} @ {away_price}¢", away_kelly)
 
-    print(f"\n  Model params: expected_goals={config.EXPECTED_TOTAL_GOALS}  home_lambda={config.HOME_GOAL_LAMBDA}")
+    print(f"\n  Model params: expected_goals={config.EXPECTED_TOTAL_GOALS}  home_win_prob={config.HOME_WIN_PROB}  solved_lambda={probs['lam_home'] / (config.EXPECTED_TOTAL_GOALS * portion):.3f}" if portion > 0 else f"\n  Model params: expected_goals={config.EXPECTED_TOTAL_GOALS}  home_win_prob={config.HOME_WIN_PROB}")
 
 
 def _print_kelly(label: str, k: dict) -> None:

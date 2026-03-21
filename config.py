@@ -1,6 +1,6 @@
 # --- Poisson model parameters (update before each game) ---
-EXPECTED_TOTAL_GOALS: float = 6.0   # pregame over/under expectation
-HOME_GOAL_LAMBDA: float = 0.44       # home share of expected goals (0–1)
+EXPECTED_TOTAL_GOALS: float = 5.0   # pregame over/under expectation
+HOME_WIN_PROB: float = 0.34          # pregame P(home wins) — lambda is solved from this
 GAME_DURATION_SEC: float = 3600.0   # 60 min regulation
 
 # --- Kelly sizer ---
