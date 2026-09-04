@@ -1,0 +1,61 @@
+name: Deploy Audited Draft Tree
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - draft-tree-site/**
+      - .github/scripts/build-draft-tree-data.mjs
+      - .github/workflows/deploy-audited-draft-tree.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Check out GitHub Pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: site
+
+      - name: Install data builder
+        working-directory: source
+        run: |
+          npm init -y >/dev/null
+          npm install --save-exact cheerio@1.1.2 >/dev/null
+
+      - name: Build current exact-format data
+        run: node source/.github/scripts/build-draft-tree-data.mjs site/data.js
+
+      - name: Copy audited application
+        run: |
+          cp source/draft-tree-site/index.html site/index.html
+          cp source/draft-tree-site/style.css site/style.css
+          cp source/draft-tree-site/engine.js site/engine.js
+          cp source/draft-tree-site/app.js site/app.js
+          rm -f site/patch.js
+          touch site/.nojekyll
+
+      - name: Commit and publish
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html style.css engine.js app.js data.js .nojekyll
+          git add -u
+          if git diff --cached --quiet; then
+            echo "No site changes to publish."
+          else
+            git commit -m "Deploy audited fantasy draft recommendation engine"
+            git push origin HEAD:gh-pages
+          fi
