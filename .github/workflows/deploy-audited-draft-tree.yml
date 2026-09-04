@@ -42,6 +42,7 @@ jobs:
           cp source/draft-tree-site/index.html site/index.html
           cp source/draft-tree-site/style.css site/style.css
           cp source/draft-tree-site/engine.js site/engine.js
+          cp source/draft-tree-site/engine-patch.js site/engine-patch.js
           cp source/draft-tree-site/app.js site/app.js
           rm -f site/patch.js
           touch site/.nojekyll
@@ -51,7 +52,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html style.css engine.js app.js data.js .nojekyll
+          git add index.html style.css engine.js engine-patch.js app.js data.js .nojekyll
           git add -u
           if git diff --cached --quiet; then
             echo "No site changes to publish."
