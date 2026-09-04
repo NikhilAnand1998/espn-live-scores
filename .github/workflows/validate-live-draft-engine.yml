@@ -1,0 +1,25 @@
+name: Validate Live Draft Engine
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/mock-draft-engine-validation.mjs
+      - .github/workflows/validate-live-draft-engine.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  independent-mock-drafts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      SIMULATIONS: 5000
+      SEED: 20260905
+    steps:
+      - name: Check out validation script
+        uses: actions/checkout@v4
+      - name: Run 15,000 simulated 14-team half-PPR drafts
+        run: node .github/scripts/mock-draft-engine-validation.mjs
