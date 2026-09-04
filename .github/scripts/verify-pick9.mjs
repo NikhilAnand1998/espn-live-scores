@@ -67,14 +67,14 @@ try {
     total: window.players.length,
     estimated: window.players.filter(player => player.estimated).length,
     exact: window.players.filter(player => !player.estimated).length,
-    names: new Set(window.players.map(player => player.name)),
+    names: window.players.map(player => player.name),
     jacobs: window.players.find(player => player.name === 'Josh Jacobs')
   }));
   assert(dataAudit.total >= 220, `complete current player pool is loaded (${dataAudit.total})`);
   assert(dataAudit.exact >= 165, `at least 165 players have exact 14-team value matches (${dataAudit.exact})`);
   assert(dataAudit.estimated >= 30, `unmatched players are estimated rather than falsely cross-matched (${dataAudit.estimated})`);
   for (const name of ['Kyren Williams','Zay Flowers','Ashton Jeanty','Josh Allen','Cam Skattebo',"D'Andre Swift",'David Montgomery','Brian Thomas Jr.','Chuba Hubbard','Xavier Worthy']) {
-    assert(dataAudit.names.has(name), `${name} is included in the recommendation pool`);
+    assert(dataAudit.names.includes(name), `${name} is included in the recommendation pool`);
   }
   assert(Boolean(dataAudit.jacobs?.excluded), 'Josh Jacobs is present for identification but excluded from recommendations');
   assert(await page.locator('[data-pick]').filter({ hasText: 'Josh Jacobs' }).count() === 0, 'Josh Jacobs is not recommended while unavailable');
