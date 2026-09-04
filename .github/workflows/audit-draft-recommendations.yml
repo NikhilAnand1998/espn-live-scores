@@ -1,0 +1,25 @@
+name: Audit Draft Recommendations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/audit-draft-recommendations.mjs
+      - .github/workflows/audit-draft-recommendations.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monte-carlo-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SIMULATIONS: 5000
+      SEED: 20260904
+    steps:
+      - name: Check out audit script
+        uses: actions/checkout@v4
+      - name: Run 5,000 exact-format mock drafts per policy
+        run: node .github/scripts/audit-draft-recommendations.mjs
