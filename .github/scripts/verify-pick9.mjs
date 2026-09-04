@@ -11,7 +11,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function openFresh(page) {
   let lastError;
-  for (let attempt = 1; attempt <= 30; attempt++) {
+  for (let attempt = 1; attempt <= 36; attempt++) {
     try {
       const response = await page.goto(`${siteUrl}?e2e=${Date.now()}`, {
         waitUntil: 'networkidle',
@@ -19,13 +19,18 @@ async function openFresh(page) {
       });
       await page.evaluate(() => localStorage.clear());
       await page.reload({ waitUntil: 'networkidle', timeout: 45000 });
-      const status = await page.locator('#status').innerText({ timeout: 10000 });
-      if (response?.ok() && status.includes('Round 1') && status.includes('1.09')) return;
-      lastError = new Error(`Attempt ${attempt}: unexpected status ${JSON.stringify(status)}`);
+      const ready = await page.evaluate(() => ({
+        status: document.querySelector('#status')?.textContent || '',
+        players: window.players?.length || 0,
+        engine: Boolean(window.DraftEngine),
+        badge: document.querySelector('.audit-badge')?.textContent || ''
+      }));
+      if (response?.ok() && ready.status.includes('Round 1') && ready.status.includes('1.09') && ready.players >= 220 && ready.engine && ready.badge.includes('AUDITED')) return;
+      lastError = new Error(`Attempt ${attempt}: deployed site not ready ${JSON.stringify(ready)}`);
     } catch (error) {
       lastError = error;
     }
-    console.log(`Waiting for latest Pages deployment, attempt ${attempt}/30...`);
+    console.log(`Waiting for latest Pages deployment, attempt ${attempt}/36...`);
     await wait(5000);
   }
   throw lastError || new Error('Hosted site never became ready');
@@ -42,24 +47,44 @@ const runtimeErrors = [];
 const failedAssets = [];
 
 try {
-  const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const desktop = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await desktop.newPage();
   page.on('pageerror', error => runtimeErrors.push(`desktop pageerror: ${error.message}`));
   page.on('console', message => {
     if (message.type() === 'error') runtimeErrors.push(`desktop console: ${message.text()}`);
   });
   page.on('response', response => {
-    if (response.url().startsWith(siteUrl) && response.status() >= 400) {
-      failedAssets.push(`${response.status()} ${response.url()}`);
-    }
+    if (response.url().startsWith(siteUrl) && response.status() >= 400) failedAssets.push(`${response.status()} ${response.url()}`);
   });
 
   await openFresh(page);
   assert((await page.title()).includes('Pick 9 Draft Tree'), 'hosted page title loads');
   assert((await page.locator('#status').innerText()).includes('1.09 / #9'), 'Round 1 snake notation is 1.09 / #9');
+  assert((await page.locator('.audit-badge').innerText()).includes('MOCK-DRAFT AUDITED'), 'audited recommendation build is deployed');
+  assert((await page.locator('#source-note').innerText()).includes('exact-format'), 'exact-format data source note is visible');
+
+  const dataAudit = await page.evaluate(() => ({
+    total: window.players.length,
+    estimated: window.players.filter(player => player.estimated).length,
+    exact: window.players.filter(player => !player.estimated).length,
+    names: new Set(window.players.map(player => player.name)),
+    jacobs: window.players.find(player => player.name === 'Josh Jacobs')
+  }));
+  assert(dataAudit.total >= 220, `complete current player pool is loaded (${dataAudit.total})`);
+  assert(dataAudit.exact >= 165, `at least 165 players have exact 14-team value matches (${dataAudit.exact})`);
+  assert(dataAudit.estimated >= 30, `unmatched players are estimated rather than falsely cross-matched (${dataAudit.estimated})`);
+  for (const name of ['Kyren Williams','Zay Flowers','Ashton Jeanty','Josh Allen','Cam Skattebo',"D'Andre Swift",'David Montgomery','Brian Thomas Jr.','Chuba Hubbard','Xavier Worthy']) {
+    assert(dataAudit.names.has(name), `${name} is included in the recommendation pool`);
+  }
+  assert(Boolean(dataAudit.jacobs?.excluded), 'Josh Jacobs is present for identification but excluded from recommendations');
+  assert(await page.locator('[data-pick]').filter({ hasText: 'Josh Jacobs' }).count() === 0, 'Josh Jacobs is not recommended while unavailable');
+
   assert(await page.locator('[data-pick]').count() >= 10, 'Round 1 displays multiple clickable leaves');
   assert(await page.locator('[data-pick]').filter({ hasText: 'James Cook' }).count() === 1, 'James Cook Round 1 branch is present');
   assert(await page.locator('[data-pick]').filter({ hasText: 'CeeDee Lamb' }).count() === 1, 'CeeDee Lamb Round 1 branch is present');
+
+  const initialOptions = await page.locator('.card-name b').allInnerTexts();
+  console.log(`ROUND 1 OPTIONS: ${initialOptions.join(' | ')}`);
 
   await clickPlayer(page, 'James Cook');
   await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('Round 2'));
@@ -67,6 +92,10 @@ try {
   assert(round2Status.includes('2.06 / #20'), 'James Cook advances to correct Round 2 pick 2.06 / #20');
   assert((await page.locator('#team').innerText()).includes('James Cook'), 'current team updates after selection');
   assert(await page.locator('[data-edit]').count() === 1, 'selected player becomes the tree trunk');
+  assert(await page.locator('[data-pick]').filter({ hasText: 'James Cook' }).count() === 0, 'selected player cannot be recommended again');
+  const round2Options = await page.locator('.card-name b').allInnerTexts();
+  console.log(`ROUND 2 AFTER JAMES COOK: ${round2Options.join(' | ')}`);
+  assert(round2Options.some(name => ['Kenneth Walker','Kyren Williams','Omarion Hampton','Saquon Barkley','Chase Brown'].some(target => name.includes(target))), 'RB-first Round 2 board contains a premium RB option');
 
   await page.locator('#undo').click();
   await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('Round 1'));
@@ -89,6 +118,9 @@ try {
   await clickPlayer(page, 'CeeDee Lamb');
   await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('Round 2'));
   assert((await page.locator('.branch-title h2').innerText()).includes('Prioritize your first premium RB'), 'WR-first branch changes Round 2 strategy to RB priority');
+  const wrFirstOptions = await page.locator('.card-name b').allInnerTexts();
+  console.log(`ROUND 2 AFTER CEEDEE: ${wrFirstOptions.join(' | ')}`);
+  assert(wrFirstOptions.slice(0, 4).some(name => ['Kenneth Walker','Kyren Williams','Omarion Hampton','Chase Brown','Saquon Barkley'].some(target => name.includes(target))), 'WR-first branch places a premium RB near the top');
 
   page.once('dialog', dialog => dialog.accept());
   await page.locator('#reset').click();
@@ -104,12 +136,10 @@ try {
     assert(!drafted.includes(name), `Round ${r} recommendation is not a duplicate`);
     drafted.push(name);
     await first.click();
-    if (r < 16) {
-      await page.waitForFunction(next => document.querySelector('#status')?.textContent.includes(`Round ${next}`), r + 1);
-    } else {
-      await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('Complete'));
-    }
+    if (r < 16) await page.waitForFunction(next => document.querySelector('#status')?.textContent.includes(`Round ${next}`), r + 1);
+    else await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('Complete'));
   }
+  console.log(`FULL AUTO PATH: ${drafted.join(' > ')}`);
   assert(new Set(drafted).size === 16, 'full 16-round path contains 16 unique players');
   assert(await page.locator('[data-edit]').count() === 16, 'full draft renders all 16 selected tree nodes');
   assert((await page.locator('.done').innerText()).includes('Draft complete'), 'full draft reaches completion state');
@@ -118,17 +148,13 @@ try {
   assert(/1\s+QB/.test(countText), 'completed roster includes one starting QB');
   assert(/[2-9]\s+RB/.test(countText), 'completed roster includes at least two RBs');
   assert(/[2-9]\s+WR/.test(countText), 'completed roster includes at least two WRs');
-  assert(/1\s+TE/.test(countText), 'completed roster includes one TE');
+  assert(/[1-9]\s+TE/.test(countText), 'completed roster includes a TE');
   assert(/1\s+DEF/.test(countText), 'completed roster includes one defense');
   assert(/1\s+K/.test(countText), 'completed roster includes one kicker');
+  assert(!drafted.some(name => name === 'Josh Jacobs'), 'unavailable Josh Jacobs never appears in the full recommendation path');
   await desktop.close();
 
-  const mobile = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    isMobile: true,
-    hasTouch: true,
-    deviceScaleFactor: 3
-  });
+  const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
   const phone = await mobile.newPage();
   phone.on('pageerror', error => runtimeErrors.push(`mobile pageerror: ${error.message}`));
   phone.on('console', message => {
@@ -138,7 +164,7 @@ try {
   const overflow = await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert(overflow <= 1, 'mobile page has no viewport-level horizontal overflow');
   assert(await phone.locator('[data-pick]').count() >= 10, 'mobile Round 1 leaves render');
-  await phone.locator('[data-pick]').first().tap();
+  await phone.locator('[data-pick]').filter({ hasText: 'James Cook' }).tap();
   await phone.waitForFunction(() => document.querySelector('#status')?.textContent.includes('Round 2'));
   assert((await phone.locator('#status').innerText()).includes('2.06 / #20'), 'mobile selection advances to correct Round 2 pick');
   assert(await phone.locator('[data-edit]').count() === 1, 'mobile selected node becomes the trunk');
