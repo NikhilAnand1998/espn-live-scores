@@ -69,7 +69,8 @@ const raw = ffcPlayers.map((player, index) => {
   const adp = Number(player.adp);
   const sd = Math.max(1.5, Number(player.stdev || player.stddev || 8));
   const team = player.team || '';
-  const value = valueByKey.get(playerKey(player.name, pos)) || valueByTeamPos.get(`${team}|${pos}`) || null;
+  const exactValue = valueByKey.get(playerKey(player.name, pos));
+  const value = exactValue || ((pos === 'DEF' || pos === 'K') ? valueByTeamPos.get(`${team}|${pos}`) : null) || null;
   return {
     id: index,
     key: playerKey(player.name, pos),
