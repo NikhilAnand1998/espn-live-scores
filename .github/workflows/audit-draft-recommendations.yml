@@ -4,8 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - .github/scripts/audit-draft-recommendations.mjs
-      - .github/scripts/run-audit-draft-recommendations.mjs
+      - .github/scripts/audit-draft-recommendations-v3.mjs
       - .github/workflows/audit-draft-recommendations.yml
   workflow_dispatch:
 
@@ -22,5 +21,9 @@ jobs:
     steps:
       - name: Check out audit script
         uses: actions/checkout@v4
-      - name: Run 5,000 exact-format mock drafts per policy
-        run: node .github/scripts/run-audit-draft-recommendations.mjs
+      - name: Install audit parser
+        run: |
+          npm init -y >/dev/null
+          npm install --save-exact cheerio@1.1.2 >/dev/null
+      - name: Run 15,000 exact-format mock draft paths
+        run: node .github/scripts/audit-draft-recommendations-v3.mjs
