@@ -1,0 +1,25 @@
+name: Audit Pick 9 Opening Branches
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/audit-opening-branches.mjs
+      - .github/workflows/audit-opening-branches.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  branch-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SIMULATIONS: 12000
+      SEED: 20260906
+    steps:
+      - name: Check out audit script
+        uses: actions/checkout@v4
+      - name: Run targeted branch simulations
+        run: node .github/scripts/audit-opening-branches.mjs
