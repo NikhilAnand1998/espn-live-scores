@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07110c">
+<title>Pick 9 Mock-Draft Validation</title>
+<style>
+:root{--bg:#050b08;--panel:#0d1d14;--line:#28513b;--text:#f4faf6;--muted:#9db2a4;--green:#79f2a3;--red:#ff929b}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:980px;margin:auto;padding:24px 14px 70px}a{color:var(--green)}h1{font-size:30px;margin:12px 0 8px}.sub{color:var(--muted);line-height:1.5}.badge{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-weight:900}.pass{border-color:var(--green);color:var(--green)}.fail{border-color:var(--red);color:var(--red)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:10px;margin:18px 0}.card,.section{border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:14px}.card b{display:block;font-size:24px;color:var(--green)}.card span{color:var(--muted);font-size:11px}.section{margin-top:12px;overflow:auto}.section h2{margin:0 0 10px;font-size:18px}table{border-collapse:collapse;width:100%;min-width:690px}th,td{padding:9px;border-bottom:1px solid #244833;text-align:left;font-size:11px}th{color:var(--green)}.check{padding:8px 0;border-bottom:1px solid #1c3829}.check:last-child{border:0}.yes{color:var(--green);font-weight:900}.no{color:var(--red);font-weight:900}.roster{line-height:1.55;color:var(--muted);padding:9px 0;border-bottom:1px solid #1c3829}.back{display:inline-block;margin-bottom:8px;text-decoration:none;font-weight:900}.loading{color:var(--muted)}
+</style>
+</head>
+<body><main class="wrap"><a class="back" href="./">← Back to draft tree</a><div id="app" class="loading">Loading the latest mock-draft validation…</div></main>
+<script>
+const pct=n=>(n*100).toFixed(1)+'%';
+fetch('mock-draft-validation.json?'+Date.now()).then(r=>{if(!r.ok)throw Error('Report has not published yet');return r.json()}).then(d=>{
+ const result=d.VALIDATED?'PASS':'FAIL';
+ let html=`<span class="badge ${d.VALIDATED?'pass':'fail'}">${result}</span><h1>Mock-draft recommendation audit</h1><p class="sub">${d.format}<br>Generated ${new Date(d.generated_utc).toLocaleString()}</p><div class="grid"><div class="card"><b>${d.total_tree_mock_drafts.toLocaleString()}</b><span>tree mock drafts</span></div><div class="card"><b>${d.total_policy_draft_runs.toLocaleString()}</b><span>total strategy runs</span></div><div class="card"><b>${d.scenarios.length}</b><span>draft-room environments</span></div><div class="card"><b>${Object.values(d.checks).filter(Boolean).length}/${Object.keys(d.checks).length}</b><span>validation gates passed</span></div></div>`;
+ html+=`<section class="section"><h2>Strategy comparison</h2><table><thead><tr><th>Room</th><th>Tree score</th><th>Best rule policy</th><th>Projection-aware</th><th>Complete roster</th><th>QB + 2RB + 2WR by R8</th></tr></thead><tbody>`;
+ for(const room of d.scenarios){const t=d.summary[room].tree;const rules=['tree','market_balanced','robust_rb','wr_lean'].map(p=>d.summary[room][p].mean_score);html+=`<tr><td>${room.replace('_',' ')}</td><td>${t.mean_score}</td><td>${Math.max(...rules)}</td><td>${d.summary[room].projection_balanced.mean_score}</td><td>${pct(t.complete_rate)}</td><td>${pct(t.core_by_round_8_rate)}</td></tr>`}
+ html+=`</tbody></table></section><section class="section"><h2>Validation gates</h2>`;
+ for(const [name,ok] of Object.entries(d.checks))html+=`<div class="check"><span class="${ok?'yes':'no'}">${ok?'PASS':'FAIL'}</span> · ${name.replaceAll('_',' ')}</div>`;
+ html+=`</section><section class="section"><h2>Human-reviewed branch tests</h2>`;
+ for(const x of d.stress_tests)html+=`<div class="check"><span class="${x.passed?'yes':'no'}">${x.passed?'PASS':'FAIL'}</span> · ${x.label}: <b>${x.top} (${x.position})</b></div>`;
+ html+=`</section><section class="section"><h2>Example complete tree drafts</h2>`;
+ for(const [room,rosters] of Object.entries(d.sample_tree_rosters)){html+=`<h3>${room.replace('_',' ')}</h3>`;for(const r of rosters.slice(0,2))html+=`<div class="roster">${r.map((p,i)=>`R${i+1}: ${p}`).join(' · ')}</div>`}
+ html+=`</section><p class="sub">${d.limitations.join(' ')}</p>`;document.querySelector('#app').innerHTML=html;
+}).catch(e=>document.querySelector('#app').innerHTML=`<h1>Validation report is publishing</h1><p class="sub">${e.message}. Refresh in a minute.</p>`);
+</script></body></html>
