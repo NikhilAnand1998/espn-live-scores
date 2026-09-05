@@ -9,6 +9,7 @@ on:
       - .github/scripts/enrich-draft-tree-consensus.mjs
       - .github/scripts/enrich-draft-tree-external-models.mjs
       - .github/scripts/enrich-draft-tree-lineupbeat.mjs
+      - .github/scripts/finalize-draft-tree-model.mjs
       - .github/scripts/smoke-test-draft-optimizer.mjs
       - .github/workflows/deploy-audited-draft-tree.yml
   workflow_dispatch:
@@ -50,6 +51,9 @@ jobs:
       - name: Add current LineupBeat half-PPR projections
         run: node source/.github/scripts/enrich-draft-tree-lineupbeat.mjs site/data.js
 
+      - name: Finalize null-safe ensemble values
+        run: node source/.github/scripts/finalize-draft-tree-model.mjs site/data.js
+
       - name: Check JavaScript syntax
         run: |
           node --check source/draft-tree-site/engine.js
@@ -81,6 +85,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No site changes to publish."
           else
-            git commit -m "Deploy multi-projection Monte Carlo draft optimizer"
+            git commit -m "Deploy null-safe multi-projection draft optimizer"
             git push origin HEAD:gh-pages
           fi
