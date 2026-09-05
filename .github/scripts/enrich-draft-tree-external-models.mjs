@@ -23,6 +23,10 @@ function finite(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function regexEscape(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function weightedMean(items) {
   const usable = items.filter(item => finite(item.value) !== null && item.weight > 0);
   if (!usable.length) return null;
@@ -41,8 +45,8 @@ function weightedMean(items) {
 function standardDeviation(values) {
   const usable = values.map(finite).filter(value => value !== null);
   if (usable.length < 2) return 0;
-  const mean = usable.reduce((sum, value) => sum + value, 0) / usable.length;
-  return Math.sqrt(usable.reduce((sum, value) => sum + (value - mean) ** 2, 0) / usable.length);
+  const average = usable.reduce((sum, value) => sum + value, 0) / usable.length;
+  return Math.sqrt(usable.reduce((sum, value) => sum + (value - average) ** 2, 0) / usable.length);
 }
 
 async function getText(url) {
@@ -138,6 +142,30 @@ function parseGiq(html) {
 
     result.set(player.key, { rank, projection, floor, ceiling });
   });
+
+  if (result.size >= 35) return result;
+
+  const body = $('body').text().replace(/\s+/g, ' ');
+  for (const item of known) {
+    if (!['QB', 'RB', 'WR', 'TE'].includes(item.player.pos)) continue;
+    const withoutSuffix = item.player.name.replace(/\s+(?:Jr\.?|Sr\.?|III|II|IV)$/i, '');
+    const namePattern = regexEscape(withoutSuffix).replace(/\\\s+/g, '\\s+');
+    const pattern = new RegExp(
+      `(?:^|\\s)(\\d{1,3})\\s+${namePattern}(?:\\s+(?:Jr\\.?|Sr\\.?|III|II|IV))?\\s+[A-Z]{2,3}\\s*(?:•|·)?\\s*${item.player.pos}\\d+\\s+` +
+      `(\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)\\s+(\\d+(?:\\.\\d+)?)\\s+` +
+      `(\\d+(?:\\.\\d+)?)\\s*(?:–|—|-)\\s*(\\d+(?:\\.\\d+)?)\\s*pts`,
+      'i'
+    );
+    const match = body.match(pattern);
+    if (!match) continue;
+    result.set(item.player.key, {
+      rank: Number(match[1]),
+      projection: Number(match[3]),
+      floor: Number(match[5]),
+      ceiling: Number(match[6])
+    });
+  }
+
   return result;
 }
 
