@@ -1,0 +1,53 @@
+name: Validate Pick 9 strategy with mock drafts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - validation/mock_validate.py
+      - .github/workflows/mock-draft-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MOCKS_PER_SCENARIO: 1000
+    steps:
+      - name: Check out validation code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validation dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run 3,000 mock drafts and strategy comparisons
+        run: python validation/mock_validate.py
+
+      - name: Upload full validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pick9-mock-draft-validation
+          path: validation-output/
+
+      - name: Publish validation report alongside site
+        shell: bash
+        run: |
+          git fetch origin gh-pages
+          git worktree add /tmp/pick9-pages origin/gh-pages
+          cp validation-output/mock-draft-validation.json /tmp/pick9-pages/mock-draft-validation.json
+          cp validation-output/mock-draft-validation.md /tmp/pick9-pages/mock-draft-validation.md
+          cd /tmp/pick9-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mock-draft-validation.json mock-draft-validation.md
+          git commit -m "Publish latest mock-draft validation report" || exit 0
+          git push origin HEAD:gh-pages
