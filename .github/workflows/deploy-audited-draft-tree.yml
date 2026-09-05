@@ -6,6 +6,7 @@ on:
     paths:
       - draft-tree-site/**
       - .github/scripts/build-draft-tree-data.mjs
+      - .github/scripts/enrich-draft-tree-consensus.mjs
       - .github/workflows/deploy-audited-draft-tree.yml
   workflow_dispatch:
 
@@ -37,6 +38,9 @@ jobs:
       - name: Build current exact-format data
         run: node source/.github/scripts/build-draft-tree-data.mjs site/data.js
 
+      - name: Add current expert consensus ranks
+        run: node source/.github/scripts/enrich-draft-tree-consensus.mjs site/data.js
+
       - name: Copy audited application
         run: |
           cp source/draft-tree-site/index.html site/index.html
@@ -57,6 +61,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No site changes to publish."
           else
-            git commit -m "Deploy audited fantasy draft recommendation engine"
+            git commit -m "Deploy consensus-audited fantasy draft engine"
             git push origin HEAD:gh-pages
           fi
