@@ -1,0 +1,49 @@
+name: Research current fantasy sources
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/research-fantasy-sources.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe public current-data sources
+        shell: python
+        run: |
+          import json, re, urllib.request, urllib.error
+
+          urls = {
+            'ffc_adp': 'https://fantasyfootballcalculator.com/api/v1/adp/half-ppr?position=all&teams=14&year=2026',
+            'fantasypros_flex_proj': 'https://www.fantasypros.com/nfl/projections/flex.php?week=draft&scoring=HALF',
+            'fantasypros_half_rank': 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php',
+            'espn_players': 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?view=kona_player_info'
+          }
+
+          for name, url in urls.items():
+            print(f'\n===== {name} =====')
+            req = urllib.request.Request(url, headers={
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128 Safari/537.36',
+              'Accept': 'application/json,text/html,application/xhtml+xml'
+            })
+            try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                body = r.read().decode('utf-8', 'replace')
+                print('status', r.status, 'type', r.headers.get('content-type'), 'bytes', len(body))
+                print(body[:1500].replace('\n',' ')[:1500])
+                if name == 'ffc_adp':
+                  data = json.loads(body)
+                  print('keys', list(data) if isinstance(data, dict) else type(data))
+                  print('sample', json.dumps(data, indent=2)[:5000])
+                else:
+                  print('has James Cook', 'James Cook' in body)
+                  print('tables', len(re.findall(r'<table', body, flags=re.I)))
+            except Exception as e:
+              print('ERROR', type(e).__name__, repr(e))
