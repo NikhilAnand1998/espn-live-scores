@@ -171,7 +171,7 @@
 
   function branchMarkup(round, currentRoster) {
     const all = rankings(round, currentRoster);
-    const baseCount = round === 1 ? 12 : 8;
+    const baseCount = round === 1 ? 16 : 8;
     const shown = all.slice(0, baseCount + Number(state.more || 0));
 
     if (!shown.length) {
