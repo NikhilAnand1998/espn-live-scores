@@ -43,10 +43,15 @@ function blockedNames(names) {
   return new Set(names.map(name => byName.get(name)?.key).filter(Boolean));
 }
 
-assert(meta.modelVersion === 'ensemble-rollout-v5', 'Null-safe v5 data model is active');
+assert(meta.modelVersion === 'ensemble-rollout-v6-market', 'Market-informed v6 data model is active');
 assert(meta.nullSafeEnsemble === true, 'Null-safe ensemble finalization completed');
 assert(Number(meta.lineupBeatMatches) >= 175, 'At least 175 independent half-PPR projections are matched');
+assert(Number(meta.marketPropMatches) >= 45, 'At least 45 players have market-priced half-PPR projections');
 const skillPlayers = players.filter(player => ['QB', 'RB', 'WR', 'TE'].includes(player.pos));
+const marketPlayers = skillPlayers.filter(player => Number(player.marketPropProjection) > 0);
+assert(marketPlayers.length >= 45, 'Market-prop player rows are present in the generated pool');
+assert(marketPlayers.every(player => Number(player.marketPropFloor) > 0 && Number(player.marketPropFloor) < Number(player.marketPropProjection)), 'Market-prop floors are valid');
+assert(marketPlayers.every(player => Number(player.marketPropCeiling) > Number(player.marketPropProjection)), 'Market-prop ceilings are valid');
 assert(skillPlayers.every(player => Number(player.projectionEnsemble) > 0), 'Every skill player has a positive ensemble projection');
 assert(skillPlayers.every(player => Number(player.projectionFloor) > 0 && Number(player.projectionFloor) < Number(player.projectionEnsemble)), 'Every skill player has a valid nonzero floor');
 assert(skillPlayers.every(player => Number(player.projectionCeiling) > Number(player.projectionEnsemble)), 'Every skill player has a ceiling above projection');
@@ -74,6 +79,7 @@ assert(normalTopFour.some(name => /CeeDee Lamb|De'Von Achane|Derrick Henry|Chase
 const cook = players.find(player => /James Cook/.test(player.name));
 const ceedee = players.find(player => player.name === 'CeeDee Lamb');
 assert(Boolean(cook && ceedee), 'Core Round 1 branch players exist');
+assert(Number(cook.marketPropProjection) > 0 && Number(ceedee.marketPropProjection) > 0, 'James Cook and CeeDee Lamb include market-priced projections');
 
 const roundTwoBlocked = new Set(normalBlocked);
 for (const name of ['Derrick Henry', "De'Von Achane", 'CeeDee Lamb', 'Justin Jefferson', 'Chase Brown', 'Drake London', 'Saquon Barkley', 'Rashee Rice']) {
@@ -117,4 +123,4 @@ const repeat = Engine.rankPlayers(players, normalBlocked, [], 1);
 assert(repeat[0].player.key === normalPickNine[0].player.key, 'Optimizer is deterministic for an unchanged draft state');
 assert(Engine.MODEL_VERSION === 'ensemble-rollout-v3', 'Rollout engine implementation is active before metadata labeling');
 
-console.log(JSON.stringify({ passed: assertions.length, dataModel: meta.modelVersion, engine: Engine.MODEL_VERSION, normalTopFour }, null, 2));
+console.log(JSON.stringify({ passed: assertions.length, dataModel: meta.modelVersion, engine: Engine.MODEL_VERSION, marketPlayers: marketPlayers.length, normalTopFour }, null, 2));
