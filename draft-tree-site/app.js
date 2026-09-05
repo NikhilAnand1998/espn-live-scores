@@ -4,7 +4,7 @@
   const Engine = window.DraftEngine;
   const pool = Array.isArray(window.players) ? window.players : [];
   const meta = window.draftMeta || {};
-  const storageKey = 'pick9-audited-tree-v2';
+  const storageKey = 'pick9-optimized-tree-v3';
   const byKey = new Map(pool.map(player => [player.key, player]));
 
   let state = { selected: [], gone: [], retired: [], more: 0 };
@@ -85,7 +85,11 @@
   function sourceText() {
     const draftCount = Number(meta.draftCount || 0).toLocaleString();
     const dateText = meta.endDate ? `through ${meta.endDate}` : (meta.generatedAt || 'current');
-    return `${draftCount || 'Current'} exact-format mocks ${dateText} · 14-team half-PPR value model · recommendation audit v2`;
+    const external = [
+      meta.rotowireMatches ? `${meta.rotowireMatches} RotoWire ranks` : '',
+      meta.giqProjectionMatches ? `${meta.giqProjectionMatches} GIQ projections` : ''
+    ].filter(Boolean).join(' · ');
+    return `${draftCount || 'Current'} exact-format mocks ${dateText} · ${external || 'multi-source projections'} · ${Engine.MODEL_LABEL || 'lookahead optimizer'} ${Engine.MODEL_VERSION || ''}`;
   }
 
   function statusMarkup(round, currentRoster) {
@@ -100,14 +104,14 @@
   }
 
   function teamMarkup(currentRoster) {
-    const c = Engine.counts(currentRoster);
-    const counts = Object.keys(c)
-      .map(pos => `<span><b>${c[pos]}</b> ${pos}</span>`)
+    const counts = Engine.counts(currentRoster);
+    const countMarkup = Object.keys(counts)
+      .map(pos => `<span><b>${counts[pos]}</b> ${pos}</span>`)
       .join('');
     const list = currentRoster.length
       ? currentRoster.map((player, index) => `R${index + 1}: <b>${escapeHtml(player.name)}</b> (${player.pos})`).join('<br>')
       : 'No picks yet';
-    return `<div class="counts">${counts}</div><div class="roster">${list}</div>`;
+    return `<div class="counts">${countMarkup}</div><div class="roster">${list}</div>`;
   }
 
   function nodeMarkup(player, index, fullRoster) {
@@ -128,23 +132,42 @@
   }
 
   function valueLabel(player) {
-    if (Number.isFinite(Number(player.valueRank))) {
-      return `14T value #${player.valueRank} · VOR ${Number(player.vor) >= 0 ? '+' : ''}${Number(player.vor).toFixed(1)}`;
+    const ensemble = Number(player.ensembleRank);
+    const projection = Number(player.projectionEnsemble ?? player.projection);
+    const vor = Number(player.vor);
+    if (Number.isFinite(ensemble)) {
+      return `Ensemble #${ensemble.toFixed(1)} · ${Number.isFinite(projection) ? `${projection.toFixed(0)} pts` : 'projection estimated'}`;
     }
-    return `Estimated 14T value · VOR ${Number(player.vor) >= 0 ? '+' : ''}${Number(player.vor).toFixed(1)}`;
+    if (Number.isFinite(vor)) return `14T VOR ${vor >= 0 ? '+' : ''}${vor.toFixed(1)}`;
+    return 'Multi-source value estimate';
+  }
+
+  function optimizationMetrics(entry, index, round) {
+    const details = entry.details || {};
+    const metrics = [];
+    if (details.optimized) {
+      metrics.push(`${details.rollouts} board simulations · ${details.horizon}-turn lookahead`);
+      if (index === 0) metrics.push(`${details.confidence || 'Model preferred'}${details.edge > 0 ? ` · edge +${details.edge.toFixed(1)}` : ''}`);
+      else if (Number.isFinite(details.behindTop)) metrics.push(`${details.behindTop.toFixed(1)} model points behind #1`);
+      if (details.commonNextPositions && round < 16) metrics.push(`Common continuation: ${details.commonNextPositions}`);
+    }
+    return metrics;
   }
 
   function cardMarkup(entry, index, round, currentRoster) {
     const player = entry.player;
+    const details = entry.details || {};
     const labels = Engine.reasons(entry, currentRoster, round, index);
-    const chance = Math.round(entry.details.goneChance * 100);
+    const chance = Math.round((details.goneChance ?? 0) * 100);
     const nextPlan = round === 16 ? 'Draft complete' : Engine.plan(round + 1, [...currentRoster, player]);
     const status = player.status
       ? `<div class="player-alert ${player.excluded ? 'danger' : ''}"><b>${escapeHtml(player.status)}</b>${player.statusNote ? ` · ${escapeHtml(player.statusNote)}` : ''}</div>`
       : '';
+    const metrics = [valueLabel(player), ...optimizationMetrics(entry, index, round)];
+    if (round < 16) metrics.push(`${chance}% chance gone by next turn`);
 
     return `
-      <article class="card ${index === 0 ? 'best' : ''}">
+      <article class="card ${index === 0 ? 'best' : ''} ${details.confidence === 'Close alternative' ? 'close' : ''}">
         <button class="draft" data-pick="${escapeHtml(player.key)}" aria-label="Draft ${escapeHtml(player.name)}">
           <div class="card-top">
             <div class="pos">${player.pos}</div>
@@ -152,12 +175,9 @@
               <b>${escapeHtml(player.name)}</b>
               <small>${escapeHtml(player.team || '')}${player.bye ? ` · Bye ${player.bye}` : ''} · ADP ${Number(player.adp).toFixed(1)}</small>
             </div>
-            <span class="rank">${index === 0 ? 'BEST FIT' : `OPTION ${index + 1}`}</span>
+            <span class="rank">${index === 0 ? 'OPTIMAL FIT' : `OPTION ${index + 1}`}</span>
           </div>
-          <div class="metrics">
-            <span>${escapeHtml(valueLabel(player))}</span>
-            ${round < 16 ? `<span>${chance}% chance gone by next turn</span>` : ''}
-          </div>
+          <div class="metrics">${metrics.map(metric => `<span>${escapeHtml(metric)}</span>`).join('')}</div>
           <div class="why">${labels.map(label => `<span>${escapeHtml(label)}</span>`).join('')}</div>
           ${status}
           <div class="next">If selected → ${escapeHtml(nextPlan)}</div>
@@ -186,12 +206,17 @@
         </section>`;
     }
 
+    const top = shown[0]?.details || {};
+    const modelDescription = top.optimized
+      ? `${top.rollouts} deterministic board simulations per candidate with ${top.horizon} future snake turns evaluated.`
+      : 'Late-round recommendation based on projected value, roster fit, and availability.';
+
     return `
       <section class="branch" id="branch">
         <div class="branch-title">
           <small>ROUND ${round} · ${pickLabel(round)} · OVERALL ${Engine.PICKS[round - 1]}</small>
           <h2>${escapeHtml(Engine.plan(round, currentRoster))}</h2>
-          <p>Ranked by exact-format value, current ADP, roster construction, tier scarcity, and likelihood of surviving your next snake turn.</p>
+          <p>${escapeHtml(modelDescription)} Tap the player you draft; tap Gone when another manager selects one.</p>
         </div>
         <div class="cards">${shown.map((entry, index) => cardMarkup(entry, index, round, currentRoster)).join('')}</div>
         <div class="tools">
@@ -204,7 +229,7 @@
   function render({ scroll = false } = {}) {
     const currentRoster = roster();
     const round = currentRound();
-    let html = '<div class="root">Your draft path<small>Each selection changes every recommendation below it.</small></div>';
+    let html = '<div class="root">Your optimized draft path<small>Every selection reruns the future-board model and changes all recommendations below.</small></div>';
 
     currentRoster.forEach((player, index) => {
       html += nodeMarkup(player, index, currentRoster);
