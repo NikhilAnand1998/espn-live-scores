@@ -54,6 +54,7 @@ jobs:
         run: |
           node --check source/draft-tree-site/engine.js
           node --check source/draft-tree-site/engine-patch.js
+          node --check source/draft-tree-site/model-meta.js
           node --check source/draft-tree-site/app.js
 
       - name: Smoke-test optimized recommendation branches
@@ -65,6 +66,7 @@ jobs:
           cp source/draft-tree-site/style.css site/style.css
           cp source/draft-tree-site/engine.js site/engine.js
           cp source/draft-tree-site/engine-patch.js site/engine-patch.js
+          cp source/draft-tree-site/model-meta.js site/model-meta.js
           cp source/draft-tree-site/app.js site/app.js
           rm -f site/patch.js
           touch site/.nojekyll
@@ -74,7 +76,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html style.css engine.js engine-patch.js app.js data.js .nojekyll
+          git add index.html style.css engine.js engine-patch.js model-meta.js app.js data.js .nojekyll
           git add -u
           if git diff --cached --quiet; then
             echo "No site changes to publish."
