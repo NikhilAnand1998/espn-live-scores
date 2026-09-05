@@ -19,6 +19,7 @@ function normalize(value) {
 }
 
 function finite(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -187,7 +188,7 @@ try {
 }
 
 if (parsed.rotowire.size < 100 && parsed.giq.size < 35) {
-  throw new Error(`External model enrichment failed. ${errors.join(' | ')}`);
+  console.warn(`Optional supplemental feeds were sparse; continuing with the primary exact-format, consensus, LineupBeat, and market-prop inputs. ${errors.join(' | ')}`);
 }
 
 const fallbackCv = { QB: 0.15, RB: 0.26, WR: 0.23, TE: 0.25, DEF: 0.16, K: 0.14 };
@@ -240,8 +241,9 @@ meta.externalModelsGeneratedAt = new Date().toISOString();
 meta.rotowireMatches = rotowireMatches;
 meta.giqProjectionMatches = giqProjectionMatches;
 meta.externalModelErrors = errors;
+meta.externalModelsOptional = true;
 meta.modelVersion = 'ensemble-rollout-v3';
 meta.sources = { ...(meta.sources || {}), ...SOURCES };
 
 fs.writeFileSync(dataPath, `window.draftMeta=${JSON.stringify(meta)};\nwindow.players=${JSON.stringify(players)};\n`);
-console.log(`External ensemble ready: ${rotowireMatches} RotoWire ranks, ${giqProjectionMatches} GIQ projections.`);
+console.log(`Supplemental model enrichment complete: ${rotowireMatches} RotoWire ranks, ${giqProjectionMatches} GIQ projections.`);
