@@ -5,12 +5,28 @@ import * as cheerio from 'cheerio';
 const dataPath = process.argv[2] || 'data.js';
 const SOURCES = [
   {
+    name: 'RotoWire print',
+    url: 'https://www.rotowire.com/football/cheatsheet-print.php?style=HALF',
+    orientation: 'name-before-position',
+    printPattern: true
+  },
+  {
+    name: 'RotoWire web9',
+    url: 'https://web9.rotowire.com/football/cheatsheet-half.php',
+    orientation: 'name-before-position'
+  },
+  {
     name: 'FFToday',
     url: 'https://ftp.fftoday.com/rankings/26-print-half-ppr.html',
     orientation: 'position-before-name'
   },
   {
-    name: 'RotoWire',
+    name: 'RotoWire mirror',
+    url: 'https://aws-prod-web9.rotowire.com/football/article/2026-half-ppr-rankings-fantasy-football-nfl-preseason-week-3-update-130452',
+    orientation: 'name-before-position'
+  },
+  {
+    name: 'RotoWire article',
     url: 'https://www.rotowire.com/football/article/2026-half-ppr-rankings-fantasy-football-nfl-preseason-week-3-update-130452',
     orientation: 'name-before-position'
   }
@@ -65,11 +81,11 @@ function parseTables(html, orientation) {
   $('table tr').each((_, row) => {
     const cells = $(row).find('th,td').map((__, cell) => $(cell).text().replace(/\s+/g, ' ').trim()).get();
     if (cells.length < 3) return;
-    const rankIndex = cells.findIndex(cell => /^\d{1,3}$/.test(cell));
+    const rankIndex = cells.findIndex(cell => /^\d{1,3}\.?$/.test(cell));
     const posIndex = cells.findIndex((cell, index) => index > rankIndex && /^(QB|RB|WR|TE|K|PK|DST|D\/ST)\d*$/i.test(cell));
     if (rankIndex < 0 || posIndex < 0) return;
 
-    const rank = Number(cells[rankIndex]);
+    const rank = Number(cells[rankIndex].replace('.', ''));
     const pos = canonicalPos(cells[posIndex]);
     const preferred = orientation === 'position-before-name' ? cells[posIndex + 1] : cells[posIndex - 1];
     const alternate = orientation === 'position-before-name' ? cells[posIndex - 1] : cells[posIndex + 1];
@@ -80,6 +96,26 @@ function parseTables(html, orientation) {
     }
   });
 
+  return rankings;
+}
+
+function parsePrintable(html) {
+  const $ = cheerio.load(html);
+  const text = $('body').text().replace(/\s+/g, ' ');
+  const rankings = [];
+  const patterns = [
+    /(\d{1,3})\.\s*([A-Za-zÀ-ÿ.'’\- ]{3,55}?)\s+([A-Z]{2,3})\s+(QB|RB|WR|TE)\s*\(\d{1,2}\)/g,
+    /(?:^|\s)(\d{1,3})\s+([A-Za-zÀ-ÿ.'’\- ]{3,55}?)\s+(QB|RB|WR|TE)\s+[A-Z]{2,3}\s+\d{1,2}(?=\s+\d{1,3}\s+|$)/g
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const rank = Number(match[1]);
+      const name = match[2].replace(/\.\s+/g, ' ').trim();
+      const pos = match[4] || match[3];
+      if (rank >= 1 && rank <= 250 && plausibleName(name)) rankings.push({ rank, name, pos });
+    }
+  }
   return rankings;
 }
 
@@ -98,7 +134,7 @@ const sourceErrors = [];
 for (const candidate of SOURCES) {
   try {
     const html = await getText(candidate.url);
-    const parsed = parseTables(html, candidate.orientation);
+    const parsed = [...parseTables(html, candidate.orientation), ...parsePrintable(html)];
     const candidateMap = new Map();
     for (const item of parsed) candidateMap.set(playerKey(item.name, item.pos), item);
 
