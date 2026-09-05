@@ -4,7 +4,7 @@
   const Engine = window.DraftEngine;
   const pool = Array.isArray(window.players) ? window.players : [];
   const meta = window.draftMeta || {};
-  const storageKey = 'pick9-optimized-tree-v3';
+  const storageKey = 'pick9-optimized-tree-v4';
   const byKey = new Map(pool.map(player => [player.key, player]));
 
   let state = { selected: [], gone: [], retired: [], more: 0 };
@@ -87,6 +87,7 @@
     const dateText = meta.endDate ? `through ${meta.endDate}` : (meta.generatedAt || 'current');
     const external = [
       meta.rotowireMatches ? `${meta.rotowireMatches} RotoWire ranks` : '',
+      meta.lineupBeatMatches ? `${meta.lineupBeatMatches} independent half-PPR projections` : '',
       meta.giqProjectionMatches ? `${meta.giqProjectionMatches} GIQ projections` : ''
     ].filter(Boolean).join(' · ');
     return `${draftCount || 'Current'} exact-format mocks ${dateText} · ${external || 'multi-source projections'} · ${Engine.MODEL_LABEL || 'lookahead optimizer'} ${Engine.MODEL_VERSION || ''}`;
@@ -175,7 +176,7 @@
               <b>${escapeHtml(player.name)}</b>
               <small>${escapeHtml(player.team || '')}${player.bye ? ` · Bye ${player.bye}` : ''} · ADP ${Number(player.adp).toFixed(1)}</small>
             </div>
-            <span class="rank">${index === 0 ? 'OPTIMAL FIT' : `OPTION ${index + 1}`}</span>
+            <span class="rank">${index === 0 ? 'MODEL PICK' : `OPTION ${index + 1}`}</span>
           </div>
           <div class="metrics">${metrics.map(metric => `<span>${escapeHtml(metric)}</span>`).join('')}</div>
           <div class="why">${labels.map(label => `<span>${escapeHtml(label)}</span>`).join('')}</div>
