@@ -29,6 +29,7 @@ for (const path of [dataPath, enginePath, patchPath]) {
 
 const players = Array.from(sandbox.players || []);
 const Engine = sandbox.DraftEngine;
+const meta = sandbox.draftMeta || {};
 if (!Engine || players.length < 220) throw new Error(`Bad optimizer load: engine=${Boolean(Engine)} players=${players.length}`);
 
 const byName = new Map(players.map(player => [player.name.replace(/\s+(Jr\.|III|II)$/i, ''), player]));
@@ -41,6 +42,16 @@ function assert(value, label) {
 function blockedNames(names) {
   return new Set(names.map(name => byName.get(name)?.key).filter(Boolean));
 }
+
+assert(meta.modelVersion === 'ensemble-rollout-v5', 'Null-safe v5 data model is active');
+assert(meta.nullSafeEnsemble === true, 'Null-safe ensemble finalization completed');
+assert(Number(meta.lineupBeatMatches) >= 175, 'At least 175 independent half-PPR projections are matched');
+const skillPlayers = players.filter(player => ['QB', 'RB', 'WR', 'TE'].includes(player.pos));
+assert(skillPlayers.every(player => Number(player.projectionEnsemble) > 0), 'Every skill player has a positive ensemble projection');
+assert(skillPlayers.every(player => Number(player.projectionFloor) > 0 && Number(player.projectionFloor) < Number(player.projectionEnsemble)), 'Every skill player has a valid nonzero floor');
+assert(skillPlayers.every(player => Number(player.projectionCeiling) > Number(player.projectionEnsemble)), 'Every skill player has a ceiling above projection');
+assert(skillPlayers.every(player => Number(player.ensembleRank) > 0), 'Every skill player has a positive ensemble rank');
+assert(players.filter(player => player.estimated).every(player => Number(player.valueRank) > 0), 'Missing value ranks are safely estimated rather than treated as zero');
 
 const opening = Engine.rankPlayers(players, new Set(), [], 1);
 assert(opening.length >= 12, 'Round 1 returns a deep recommendation board');
@@ -58,7 +69,7 @@ const normalBlocked = blockedNames(expectedTopEight);
 const normalPickNine = Engine.rankPlayers(players, normalBlocked, [], 1);
 const normalTopFour = normalPickNine.slice(0, 4).map(entry => entry.player.name);
 assert(normalTopFour.some(name => /James Cook/.test(name)), 'James Cook remains in the normal pick-9 decision tier');
-assert(normalTopFour.some(name => /CeeDee Lamb|De'Von Achane|Derrick Henry/.test(name)), 'Pick 9 preserves multiple credible alternatives');
+assert(normalTopFour.some(name => /CeeDee Lamb|De'Von Achane|Derrick Henry|Chase Brown/.test(name)), 'Pick 9 preserves multiple credible alternatives');
 
 const cook = players.find(player => /James Cook/.test(player.name));
 const ceedee = players.find(player => player.name === 'CeeDee Lamb');
@@ -104,6 +115,6 @@ for (const round of [15, 16]) {
 
 const repeat = Engine.rankPlayers(players, normalBlocked, [], 1);
 assert(repeat[0].player.key === normalPickNine[0].player.key, 'Optimizer is deterministic for an unchanged draft state');
-assert(Engine.MODEL_VERSION === 'ensemble-rollout-v3', 'Expected optimizer model version is active');
+assert(Engine.MODEL_VERSION === 'ensemble-rollout-v3', 'Rollout engine implementation is active before metadata labeling');
 
-console.log(JSON.stringify({ passed: assertions.length, model: Engine.MODEL_VERSION, normalTopFour }, null, 2));
+console.log(JSON.stringify({ passed: assertions.length, dataModel: meta.modelVersion, engine: Engine.MODEL_VERSION, normalTopFour }, null, 2));
