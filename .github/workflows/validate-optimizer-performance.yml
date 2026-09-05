@@ -4,6 +4,14 @@ on:
   push:
     branches: [main]
     paths:
+      - draft-tree-site/engine.js
+      - draft-tree-site/engine-patch.js
+      - .github/scripts/build-draft-tree-data.mjs
+      - .github/scripts/enrich-draft-tree-consensus.mjs
+      - .github/scripts/enrich-draft-tree-external-models.mjs
+      - .github/scripts/enrich-draft-tree-lineupbeat.mjs
+      - .github/scripts/enrich-draft-tree-market-props.mjs
+      - .github/scripts/finalize-draft-tree-model.mjs
       - .github/scripts/validate-optimizer-performance.mjs
       - .github/workflows/validate-optimizer-performance.yml
   workflow_dispatch:
@@ -16,9 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      DRAFTS_PER_SCENARIO: 20
-      OUTCOMES_PER_DRAFT: 30
-      MASTER_SEED: 20260905
+      DRAFTS_PER_SCENARIO: 15
+      OUTCOMES_PER_DRAFT: 80
+      MASTER_SEED: 20260906
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -43,6 +51,8 @@ jobs:
           node source/.github/scripts/enrich-draft-tree-consensus.mjs /tmp/pick9-data.js
           node source/.github/scripts/enrich-draft-tree-external-models.mjs /tmp/pick9-data.js
           node source/.github/scripts/enrich-draft-tree-lineupbeat.mjs /tmp/pick9-data.js
+          node source/.github/scripts/enrich-draft-tree-market-props.mjs /tmp/pick9-data.js
+          node source/.github/scripts/finalize-draft-tree-model.mjs /tmp/pick9-data.js
 
       - name: Run paired out-of-sample validation
         id: validation
@@ -54,12 +64,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pick9-optimizer-validation
+          name: pick9-optimizer-validation-v6
           path: source/optimizer-validation/
 
       - name: Publish the latest validation dashboard
         if: always()
         run: |
+          test -f source/optimizer-validation/report.json
+          test -f source/optimizer-validation/index.html
           rm -rf site/optimizer-validation
           mkdir -p site/optimizer-validation
           cp source/optimizer-validation/report.json site/optimizer-validation/report.json
@@ -68,7 +80,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add optimizer-validation/
-          git commit -m "Publish latest out-of-sample optimizer validation" || true
+          git commit -m "Publish v6 out-of-sample optimizer validation" || true
           git push origin HEAD:gh-pages
 
       - name: Enforce validation gates
