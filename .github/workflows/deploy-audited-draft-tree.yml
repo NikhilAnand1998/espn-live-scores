@@ -1,4 +1,4 @@
-name: Deploy Audited Draft Tree
+name: Deploy Optimized Draft Tree
 
 on:
   push:
@@ -7,6 +7,8 @@ on:
       - draft-tree-site/**
       - .github/scripts/build-draft-tree-data.mjs
       - .github/scripts/enrich-draft-tree-consensus.mjs
+      - .github/scripts/enrich-draft-tree-external-models.mjs
+      - .github/scripts/smoke-test-draft-optimizer.mjs
       - .github/workflows/deploy-audited-draft-tree.yml
   workflow_dispatch:
 
@@ -14,9 +16,9 @@ permissions:
   contents: write
 
 jobs:
-  build-and-publish:
+  build-test-and-publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -38,10 +40,22 @@ jobs:
       - name: Build current exact-format data
         run: node source/.github/scripts/build-draft-tree-data.mjs site/data.js
 
-      - name: Add current expert consensus ranks
+      - name: Add current consensus ranks
         run: node source/.github/scripts/enrich-draft-tree-consensus.mjs site/data.js
 
-      - name: Copy audited application
+      - name: Add independent rankings, projections, floors and ceilings
+        run: node source/.github/scripts/enrich-draft-tree-external-models.mjs site/data.js
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check source/draft-tree-site/engine.js
+          node --check source/draft-tree-site/engine-patch.js
+          node --check source/draft-tree-site/app.js
+
+      - name: Smoke-test optimized recommendation branches
+        run: node source/.github/scripts/smoke-test-draft-optimizer.mjs site/data.js source/draft-tree-site/engine.js source/draft-tree-site/engine-patch.js
+
+      - name: Copy optimized application
         run: |
           cp source/draft-tree-site/index.html site/index.html
           cp source/draft-tree-site/style.css site/style.css
@@ -61,6 +75,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No site changes to publish."
           else
-            git commit -m "Deploy consensus-audited fantasy draft engine"
+            git commit -m "Deploy Monte Carlo optimized fantasy draft engine"
             git push origin HEAD:gh-pages
           fi
