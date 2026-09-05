@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 18
     env:
       SIMULATIONS: 5000
-      SEED: 20260905
+      SEED: 20260907
     steps:
       - name: Check out validation script
         uses: actions/checkout@v4
