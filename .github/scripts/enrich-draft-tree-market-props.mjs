@@ -16,8 +16,14 @@ function normalize(value) {
 
 function finite(value) {
   if (value === null || value === undefined || value === '') return null;
-  const number = Number(String(value).replace(/,/g, '').replace(/[^0-9.+-]/g, ''));
+  const match = String(value).replace(/,/g, '').match(/[+-]?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
   return Number.isFinite(number) ? number : null;
+}
+
+function headerKey(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 async function getText(url) {
@@ -40,59 +46,108 @@ const players = Array.from(sandbox.window.players || []);
 const meta = { ...(sandbox.window.draftMeta || {}) };
 if (players.length < 200) throw new Error(`Only ${players.length} players found in ${dataPath}`);
 
-const byNamePosition = new Map(players.map(player => [`${normalize(player.name)}|${player.pos}`, player]));
+const knownByPosition = {};
+for (const position of ['QB', 'RB', 'WR', 'TE']) {
+  knownByPosition[position] = players
+    .filter(player => player.pos === position)
+    .map(player => ({ player, normalized: normalize(player.name) }))
+    .sort((a, b) => b.normalized.length - a.normalized.length);
+}
+
+function findPlayer(rowText, position) {
+  const normalizedText = normalize(rowText);
+  for (const item of knownByPosition[position] || []) {
+    if (
+      normalizedText === item.normalized
+      || normalizedText.startsWith(`${item.normalized} `)
+      || normalizedText.includes(` ${item.normalized} `)
+      || normalizedText.endsWith(` ${item.normalized}`)
+    ) return item.player;
+  }
+  return null;
+}
+
+function indexMatching(headers, predicate, fallback) {
+  const index = headers.findIndex(predicate);
+  return index >= 0 ? index : fallback;
+}
+
 const html = await getText(SOURCE_URL);
 const $ = cheerio.load(html);
 const marketRows = [];
+let tablesSeen = 0;
+let candidateRows = 0;
 
-$('table tr').each((_, row) => {
-  const cells = $(row).find('th,td').map((__, cell) => $(cell).text().replace(/\s+/g, ' ').trim()).get();
-  if (cells.length < 7) return;
-
-  const rank = finite(cells[0]);
-  const link = $(row).find('a[href*="/players/"]').first();
-  const rawName = link.text().replace(/\s+/g, ' ').trim();
-  const positionCell = cells.find(cell => /^(QB|RB|WR|TE)\d+$/i.test(cell));
-  const position = positionCell?.match(/^(QB|RB|WR|TE)/i)?.[1]?.toUpperCase();
-  if (!rank || !rawName || !position || rank > 250) return;
-
-  const positionIndex = cells.indexOf(positionCell);
-  const vor = positionIndex >= 0 ? finite(cells[positionIndex + 1]) : null;
-  const projection = positionIndex >= 0 ? finite(cells[positionIndex + 2]) : null;
-  let floor = null;
-  let ceiling = null;
-  for (const cell of cells.slice(Math.max(0, positionIndex + 3))) {
-    const numbers = String(cell).replace(/,/g, '').match(/\d+(?:\.\d+)?/g)?.map(Number) || [];
-    if (numbers.length >= 2 && numbers[0] < numbers[1]) {
-      floor = numbers[0];
-      ceiling = numbers[1];
-      break;
-    }
+$('table').each((_, table) => {
+  tablesSeen += 1;
+  let headerCells = $(table).find('thead tr').first().find('th,td').map((__, cell) => $(cell).text().replace(/\s+/g, ' ').trim()).get();
+  if (!headerCells.length) {
+    headerCells = $(table).find('tr').first().find('th,td').map((__, cell) => $(cell).text().replace(/\s+/g, ' ').trim()).get();
   }
-  const marketText = cells.find(cell => /\d+\s+markets?/i.test(cell));
-  const marketCount = marketText ? finite(marketText.match(/\d+/)?.[0]) : null;
-  const adpCell = cells.slice(positionIndex + 3).find(cell => /^\d+(?:\.\d+)?$/.test(cell));
-  const sourceAdp = adpCell ? finite(adpCell) : null;
+  const headers = headerCells.map(headerKey);
+  const rankIndex = indexMatching(headers, header => header === 'rk' || header.startsWith('rk ') || header.includes('rank'), 0);
+  const playerIndex = indexMatching(headers, header => header.includes('player'), 1);
+  const positionIndex = indexMatching(headers, header => header === 'pos' || header.includes('position'), 2);
+  const vorIndex = indexMatching(headers, header => header.includes('vor') || header.includes('value'), 3);
+  const projectionIndex = indexMatching(headers, header => header.includes('proj'), 4);
+  const rangeIndex = indexMatching(headers, header => header.includes('flr') || header.includes('floor') || header.includes('ceil') || header.includes('volatility'), 5);
+  const marketIndex = indexMatching(headers, header => header === 'mkt' || header.includes('market'), 7);
+  const adpIndex = indexMatching(headers, header => header.includes('adp'), 8);
 
-  const player = byNamePosition.get(`${normalize(rawName)}|${position}`);
-  if (!player) return;
-  if (projection === null || projection <= 0 || floor === null || ceiling === null || floor >= projection || ceiling <= projection) return;
+  const rows = $(table).find('tbody tr').length ? $(table).find('tbody tr') : $(table).find('tr').slice(1);
+  rows.each((__, row) => {
+    const cells = $(row).find('td').map((___, cell) => $(cell).text().replace(/\s+/g, ' ').trim()).get();
+    if (cells.length < 7) return;
+    const rank = finite(cells[rankIndex]);
+    const positionCell = cells[positionIndex] || cells.find(cell => /^(QB|RB|WR|TE)\d+$/i.test(cell));
+    const position = positionCell?.match(/^(QB|RB|WR|TE)/i)?.[1]?.toUpperCase();
+    if (!rank || rank > 250 || !position) return;
+    candidateRows += 1;
 
-  marketRows.push({
-    key: player.key,
-    rank,
-    vor,
-    projection,
-    floor,
-    ceiling,
-    marketCount,
-    sourceAdp
+    const playerText = [
+      cells[playerIndex],
+      $(row).find('a').map((___, link) => $(link).text().replace(/\s+/g, ' ').trim()).get().join(' '),
+      $(row).text().replace(/\s+/g, ' ').trim()
+    ].join(' ');
+    const player = findPlayer(playerText, position);
+    if (!player) return;
+
+    const vor = finite(cells[vorIndex]);
+    const projection = finite(cells[projectionIndex]);
+    const rangeText = cells[rangeIndex] || '';
+    const rangeNumbers = String(rangeText).replace(/,/g, '').match(/\d+(?:\.\d+)?/g)?.map(Number) || [];
+    const floor = rangeNumbers[0] ?? null;
+    const ceiling = rangeNumbers[1] ?? null;
+    const marketText = cells[marketIndex] || cells.find(cell => /\d+\s+markets?/i.test(cell)) || '';
+    const marketCount = finite(marketText);
+    const sourceAdp = finite(cells[adpIndex]);
+
+    if (
+      projection === null || projection <= 0
+      || floor === null || ceiling === null
+      || floor >= projection || ceiling <= projection
+    ) return;
+
+    marketRows.push({
+      key: player.key,
+      rank,
+      vor,
+      projection,
+      floor,
+      ceiling,
+      marketCount,
+      sourceAdp
+    });
   });
 });
 
-const unique = new Map(marketRows.map(row => [row.key, row]));
+const unique = new Map();
+for (const row of marketRows) {
+  const existing = unique.get(row.key);
+  if (!existing || row.rank < existing.rank) unique.set(row.key, row);
+}
 if (unique.size < 45) {
-  throw new Error(`Only parsed ${unique.size} usable market-priced half-PPR player rows`);
+  throw new Error(`Only parsed ${unique.size} usable market-priced half-PPR rows from ${candidateRows} candidate rows across ${tablesSeen} tables`);
 }
 
 for (const player of players) {
