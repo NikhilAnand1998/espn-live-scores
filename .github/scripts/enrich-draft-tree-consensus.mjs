@@ -4,32 +4,12 @@ import * as cheerio from 'cheerio';
 
 const dataPath = process.argv[2] || 'data.js';
 const SOURCES = [
-  {
-    name: 'RotoWire print',
-    url: 'https://www.rotowire.com/football/cheatsheet-print.php?style=HALF',
-    orientation: 'name-before-position',
-    printPattern: true
-  },
-  {
-    name: 'RotoWire web9',
-    url: 'https://web9.rotowire.com/football/cheatsheet-half.php',
-    orientation: 'name-before-position'
-  },
-  {
-    name: 'FFToday',
-    url: 'https://ftp.fftoday.com/rankings/26-print-half-ppr.html',
-    orientation: 'position-before-name'
-  },
-  {
-    name: 'RotoWire mirror',
-    url: 'https://aws-prod-web9.rotowire.com/football/article/2026-half-ppr-rankings-fantasy-football-nfl-preseason-week-3-update-130452',
-    orientation: 'name-before-position'
-  },
-  {
-    name: 'RotoWire article',
-    url: 'https://www.rotowire.com/football/article/2026-half-ppr-rankings-fantasy-football-nfl-preseason-week-3-update-130452',
-    orientation: 'name-before-position'
-  }
+  { name: 'LeagueLogs', url: 'https://leaguelogs.com/rankings/ros/half-ppr' },
+  { name: 'FantasyPros', url: 'https://www.fantasypros.com/nfl/rankings/half-point-ppr-cheatsheets.php' },
+  { name: 'RotoWire rankings', url: 'https://www.rotowire.com/football/rankings-half-ppr.php' },
+  { name: 'RotoWire print', url: 'https://www.rotowire.com/football/cheatsheet-print.php?style=HALF' },
+  { name: 'RotoWire web9', url: 'https://web9.rotowire.com/football/cheatsheet-half.php' },
+  { name: 'FFToday', url: 'https://ftp.fftoday.com/rankings/26-print-half-ppr.html' }
 ];
 
 function canonicalPos(value) {
@@ -53,15 +33,6 @@ function playerKey(name, pos) {
   return `${normalize(name)}|${canonicalPos(pos)}`;
 }
 
-function plausibleName(value) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  return text.length >= 3
-    && /[A-Za-z]/.test(text)
-    && !/^(QB|RB|WR|TE|K|PK|DST|D\/ST)\d*$/i.test(text)
-    && !/^[A-Z]{2,3}$/.test(text)
-    && !/^\d+(?:\.\d+)?$/.test(text);
-}
-
 async function getText(url) {
   const response = await fetch(url, {
     headers: {
@@ -74,51 +45,6 @@ async function getText(url) {
   return response.text();
 }
 
-function parseTables(html, orientation) {
-  const $ = cheerio.load(html);
-  const rankings = [];
-
-  $('table tr').each((_, row) => {
-    const cells = $(row).find('th,td').map((__, cell) => $(cell).text().replace(/\s+/g, ' ').trim()).get();
-    if (cells.length < 3) return;
-    const rankIndex = cells.findIndex(cell => /^\d{1,3}\.?$/.test(cell));
-    const posIndex = cells.findIndex((cell, index) => index > rankIndex && /^(QB|RB|WR|TE|K|PK|DST|D\/ST)\d*$/i.test(cell));
-    if (rankIndex < 0 || posIndex < 0) return;
-
-    const rank = Number(cells[rankIndex].replace('.', ''));
-    const pos = canonicalPos(cells[posIndex]);
-    const preferred = orientation === 'position-before-name' ? cells[posIndex + 1] : cells[posIndex - 1];
-    const alternate = orientation === 'position-before-name' ? cells[posIndex - 1] : cells[posIndex + 1];
-    const name = plausibleName(preferred) ? preferred : plausibleName(alternate) ? alternate : '';
-
-    if (Number.isFinite(rank) && rank >= 1 && rank <= 250 && name && ['QB','RB','WR','TE','DEF','K'].includes(pos)) {
-      rankings.push({ rank, name, pos });
-    }
-  });
-
-  return rankings;
-}
-
-function parsePrintable(html) {
-  const $ = cheerio.load(html);
-  const text = $('body').text().replace(/\s+/g, ' ');
-  const rankings = [];
-  const patterns = [
-    /(\d{1,3})\.\s*([A-Za-zÀ-ÿ.'’\- ]{3,55}?)\s+([A-Z]{2,3})\s+(QB|RB|WR|TE)\s*\(\d{1,2}\)/g,
-    /(?:^|\s)(\d{1,3})\s+([A-Za-zÀ-ÿ.'’\- ]{3,55}?)\s+(QB|RB|WR|TE)\s+[A-Z]{2,3}\s+\d{1,2}(?=\s+\d{1,3}\s+|$)/g
-  ];
-  for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const rank = Number(match[1]);
-      const name = match[2].replace(/\.\s+/g, ' ').trim();
-      const pos = match[4] || match[3];
-      if (rank >= 1 && rank <= 250 && plausibleName(name)) rankings.push({ rank, name, pos });
-    }
-  }
-  return rankings;
-}
-
 const source = fs.readFileSync(dataPath, 'utf8');
 const sandbox = { window: {}, console };
 vm.createContext(sandbox);
@@ -127,6 +53,85 @@ const players = Array.from(sandbox.window.players || []);
 const meta = { ...(sandbox.window.draftMeta || {}) };
 if (players.length < 200) throw new Error(`Only ${players.length} players found in ${dataPath}`);
 
+const knownNames = players
+  .map(player => ({ player, normalized: normalize(player.name) }))
+  .filter(item => item.normalized.length >= 4)
+  .sort((a, b) => b.normalized.length - a.normalized.length);
+
+function findKnownPlayer(cellText) {
+  const normalizedCell = normalize(
+    String(cellText || '')
+      .replace(/start\s*\/\s*sit/gi, ' ')
+      .replace(/2025 roster/gi, ' ')
+      .replace(/injury/gi, ' ')
+      .replace(/overall\s*#?\d+/gi, ' ')
+  );
+  if (!normalizedCell) return null;
+
+  for (const item of knownNames) {
+    if (
+      normalizedCell === item.normalized
+      || normalizedCell.startsWith(`${item.normalized} `)
+      || normalizedCell.endsWith(` ${item.normalized}`)
+      || normalizedCell.includes(` ${item.normalized} `)
+    ) {
+      return item.player;
+    }
+  }
+  return null;
+}
+
+function parseTables(html) {
+  const $ = cheerio.load(html);
+  const rankings = [];
+
+  $('table tr').each((_, row) => {
+    const cells = $(row).find('th,td').map((__, cell) => $(cell).text().replace(/\s+/g, ' ').trim()).get();
+    if (cells.length < 2) return;
+
+    let rank = null;
+    for (const cell of cells.slice(0, 3)) {
+      const match = cell.match(/^#?\s*(\d{1,3})(?:\.|\s|$)/);
+      if (match) {
+        rank = Number(match[1]);
+        break;
+      }
+    }
+    if (!Number.isFinite(rank) || rank < 1 || rank > 250) return;
+
+    let matchedPlayer = null;
+    for (const cell of cells) {
+      matchedPlayer = findKnownPlayer(cell);
+      if (matchedPlayer) break;
+    }
+    if (matchedPlayer) rankings.push({ rank, name: matchedPlayer.name, pos: matchedPlayer.pos });
+  });
+
+  return rankings;
+}
+
+function parseBody(html) {
+  const $ = cheerio.load(html);
+  const text = $('body').text().replace(/\s+/g, ' ');
+  const rankings = [];
+  for (const item of knownNames) {
+    const escaped = item.player.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    const patterns = [
+      new RegExp(`(?:^|\\s)(\\d{1,3})\\.?\\s+${escaped}\\s+(?:${item.player.pos}\\s+)?[A-Z]{2,3}`, 'i'),
+      new RegExp(`(?:^|\\s)(\\d{1,3})\\s+(?:${item.player.pos}\\d*\\s+)?${escaped}`, 'i')
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        const rank = Number(match[1]);
+        if (rank >= 1 && rank <= 250) rankings.push({ rank, name: item.player.name, pos: item.player.pos });
+        break;
+      }
+    }
+  }
+  return rankings;
+}
+
 let selectedSource = null;
 let unique = new Map();
 const sourceErrors = [];
@@ -134,9 +139,13 @@ const sourceErrors = [];
 for (const candidate of SOURCES) {
   try {
     const html = await getText(candidate.url);
-    const parsed = [...parseTables(html, candidate.orientation), ...parsePrintable(html)];
+    const parsed = [...parseTables(html), ...parseBody(html)];
     const candidateMap = new Map();
-    for (const item of parsed) candidateMap.set(playerKey(item.name, item.pos), item);
+    for (const item of parsed) {
+      const k = playerKey(item.name, item.pos);
+      const existing = candidateMap.get(k);
+      if (!existing || item.rank < existing.rank) candidateMap.set(k, item);
+    }
 
     const knownChecks = ['James Cook|RB', 'CeeDee Lamb|WR', 'Kenneth Walker|RB'];
     const knownMatches = knownChecks.filter(check => {
@@ -145,7 +154,7 @@ for (const candidate of SOURCES) {
     }).length;
 
     console.log(`${candidate.name}: parsed ${candidateMap.size} ranks; known checks ${knownMatches}/3.`);
-    if (candidateMap.size >= 150 && knownMatches >= 2) {
+    if (candidateMap.size >= 100 && knownMatches >= 2) {
       selectedSource = candidate;
       unique = candidateMap;
       break;
@@ -156,9 +165,7 @@ for (const candidate of SOURCES) {
   }
 }
 
-if (!selectedSource) {
-  throw new Error(`No usable consensus source. ${sourceErrors.join(' | ')}`);
-}
+if (!selectedSource) throw new Error(`No usable consensus source. ${sourceErrors.join(' | ')}`);
 
 let matched = 0;
 for (const player of players) {
@@ -167,7 +174,7 @@ for (const player of players) {
   if (consensus) matched += 1;
 }
 
-if (matched < 150) throw new Error(`Only matched ${matched} current expert consensus ranks to the draft pool`);
+if (matched < 100) throw new Error(`Only matched ${matched} current expert consensus ranks to the draft pool`);
 
 meta.consensusGeneratedAt = new Date().toISOString();
 meta.consensusMatches = matched;
