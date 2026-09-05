@@ -1,0 +1,20 @@
+name: Probe independent projection sources
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/probe-independent-projections.mjs
+      - .github/workflows/probe-independent-projections.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/probe-independent-projections.mjs
