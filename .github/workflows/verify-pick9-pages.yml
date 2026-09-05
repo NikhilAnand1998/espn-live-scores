@@ -19,6 +19,7 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.55.0-noble
     env:
       SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
+      VALIDATION_BUILD: consensus-audited-v2
     steps:
       - name: Check out test script
         uses: actions/checkout@v4
