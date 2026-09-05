@@ -1,0 +1,27 @@
+name: Verify mock-validated Pick 9 site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-pick9-v2.yml
+      - .github/scripts/verify-pick9-v2.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployed-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install matching Playwright package
+        run: |
+          npm init -y >/dev/null
+          npm install --save-exact playwright@1.55.0 >/dev/null
+      - name: Test the deployed public site end to end
+        run: node .github/scripts/verify-pick9-v2.mjs
