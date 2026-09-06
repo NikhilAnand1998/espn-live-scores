@@ -23,6 +23,17 @@ function validateDraft(draft) {
   assert((counts.DEF || 0) === 1 && (counts.K || 0) === 1, `${draft.id} contains exactly one defense and kicker`);
   assert(draft.picks[14].pos === 'DEF' && draft.picks[15].pos === 'K', `${draft.id} reserves Rounds 15 and 16 for DEF and K`);
   assert(Number.isFinite(draft.modelScore) && Number.isFinite(draft.weeklyExpected) && Number.isFinite(draft.plausibility), `${draft.id} has finite ranking metrics`);
+  assert(Number.isFinite(draft.weakestAvailability) && Number.isFinite(draft.sub15Count) && Number.isFinite(draft.sub20Count), `${draft.id} has conservative availability diagnostics`);
+}
+
+function validatePracticalDraft(draft) {
+  assert(draft.recommended === true, `${draft.id} is approved for the practical list`);
+  assert(draft.realism !== 'Ceiling only', `${draft.id} is not a ceiling-only roster`);
+  assert(draft.veryLongShotCount === 0, `${draft.id} contains no sub-5% picks`);
+  assert(draft.longShotCount <= 1, `${draft.id} contains at most one sub-10% pick`);
+  assert(draft.sub15Count <= 4, `${draft.id} contains at most four sub-15% picks`);
+  assert(draft.sub20Count <= 6, `${draft.id} contains at most six sub-20% picks`);
+  assert(draft.weakestAvailability >= 5, `${draft.id} has no displayed pick below 5%`);
 }
 
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
@@ -42,14 +53,31 @@ try {
   assert(payload.meta.totalCompletedDrafts >= 20000, 'at least 20,000 complete strategy drafts were simulated');
   assert(payload.meta.rooms >= 2500, 'simulation covers at least 2,500 independent draft rooms');
   assert(payload.meta.strategies >= 7, 'seven distinct strategies are represented');
+  assert(payload.meta.simulationVersion.includes('conservative'), 'simulation payload uses the conservative ranking version');
   assert(payload.strategySummary.length === payload.meta.strategies, 'strategy leaderboard contains every strategy');
-  assert(payload.overall.length >= 10, 'overall rankings contain at least ten distinct drafts');
-  assert(Object.values(payload.byStrategy).every(list => list.length >= 3), 'every strategy has three ranked draft examples');
-  assert(payload.overall.every((draft, index, list) => index === 0 || list[index - 1].modelScore >= draft.modelScore), 'overall drafts are ordered by descending model score');
-  assert(payload.overall.some(draft => draft.realism !== 'Dream outcome'), 'ranked list includes at least one realistic or aggressive path');
+  assert(payload.overall.length >= 10, 'practical rankings contain at least ten distinct drafts');
+  assert(Array.isArray(payload.ceiling) && payload.ceiling.length >= 3, 'ceiling outcomes remain available in a separate list');
+  assert(Object.values(payload.byStrategy).every(list => list.length >= 3), 'every strategy has three ranked practical examples');
 
-  payload.overall.forEach(validateDraft);
-  Object.values(payload.byStrategy).flat().forEach(validateDraft);
+  const tier = draft => draft.conservative ? 0 : 1;
+  assert(payload.overall.every((draft, index, list) => {
+    if (index === 0) return true;
+    const previous = list[index - 1];
+    return tier(previous) < tier(draft)
+      || (tier(previous) === tier(draft) && previous.modelScore >= draft.modelScore);
+  }), 'practical drafts are conservative-first and then ordered by score');
+  assert(payload.overall.some(draft => draft.realism === 'Conservative'), 'default rankings include strictly conservative rosters');
+  assert(payload.ceiling.every(draft => draft.recommended === false && draft.realism === 'Ceiling only'), 'extreme outcomes are isolated from the practical list');
+
+  payload.overall.forEach(draft => {
+    validateDraft(draft);
+    validatePracticalDraft(draft);
+  });
+  Object.values(payload.byStrategy).flat().forEach(draft => {
+    validateDraft(draft);
+    validatePracticalDraft(draft);
+  });
+  payload.ceiling.forEach(validateDraft);
 
   const byStrategy = payload.byStrategy;
   assert(byStrategy.hero_rb.every(draft => draft.picks[0].pos === 'RB'), 'Hero RB examples begin with a running back');
@@ -65,8 +93,21 @@ try {
   assert(await page.locator('[data-app-panel="simulations"]').isVisible(), 'simulation panel is visible after tab selection');
   assert(!(await page.locator('[data-app-panel="live"]').isVisible()), 'live panel is hidden while simulation tab is active');
   assert(await page.locator('.simulation-strategy-card').count() === payload.meta.strategies, 'strategy leaderboard renders all strategies');
-  assert(await page.locator('.simulation-draft-card').count() === payload.overall.length, 'overall ranked draft cards render');
-  assert(await page.locator('.simulation-pick').count() >= 16, 'expanded top draft renders all selections');
+  assert(await page.locator('.simulation-draft-card').count() === payload.overall.length, 'best practical draft cards render by default');
+  assert(await page.locator('.simulation-pick').count() >= 16, 'expanded top practical draft renders all selections');
+  assert((await page.locator('[data-simulation-filter="overall"]').innerText()).includes('Best practical'), 'default filter is clearly labeled Best practical');
+  assert(await page.locator('.simulation-realism.dream').count() === 0, 'default practical view contains no ceiling-only cards');
+
+  await page.locator('[data-simulation-filter="ceiling"]').click();
+  const ceilingIds = payload.ceiling.map(draft => draft.id);
+  await page.waitForFunction(expectedIds => {
+    const actualIds = [...document.querySelectorAll('.simulation-draft-card')]
+      .map(card => card.getAttribute('data-simulation-draft'));
+    return actualIds.length === expectedIds.length
+      && actualIds.every(id => expectedIds.includes(id));
+  }, ceilingIds, { timeout: 5000 });
+  assert(await page.locator('.simulation-draft-card').count() === payload.ceiling.length, 'ceiling filter renders the isolated upside outcomes');
+  assert(await page.locator('.simulation-realism.dream').count() === payload.ceiling.length, 'ceiling filter clearly labels every extreme roster');
 
   await page.locator('[data-simulation-filter="hero_rb"]').click();
   const heroIds = payload.byStrategy.hero_rb.map(draft => draft.id);
@@ -82,6 +123,7 @@ try {
   assert(filteredIds.length === heroIds.length, 'strategy filter renders only Hero RB drafts');
   assert(filteredIds.every(id => heroIds.includes(id)), 'filtered cards match selected strategy');
   assert(await page.locator('[data-simulation-filter="hero_rb"]').getAttribute('aria-pressed') === 'true', 'strategy filter exposes its selected state');
+  assert(await page.locator('.simulation-realism.dream').count() === 0, 'strategy examples also exclude ceiling-only outcomes');
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert(overflow <= 1, 'simulation tab has no horizontal overflow on a 390px phone', `overflow=${overflow}`);
