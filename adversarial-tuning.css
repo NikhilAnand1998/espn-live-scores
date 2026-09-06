@@ -1,3 +1,29 @@
+.roster-chip.bench{
+  border-color:#3e647b;
+  background:#0a1a23;
+  color:var(--blue);
+}
+
+.lineup-format-summary{
+  margin-bottom:10px;
+  padding:10px;
+  border:1px solid #315f46;
+  border-radius:11px;
+  background:#08170f;
+}
+.lineup-format-summary b,
+.lineup-format-summary span,
+.lineup-format-summary small{display:block}
+.lineup-format-summary b{font-size:11px;color:var(--green)}
+.lineup-format-summary span{margin-top:4px;font-size:10px;font-weight:800;color:var(--text)}
+.lineup-format-summary small{margin-top:4px;font-size:9px;line-height:1.4;color:var(--muted)}
+
+.reason-list .lineup-role{
+  border-color:#47755a;
+  background:#0d2819;
+  color:var(--green);
+}
+
 @media (max-width:480px){
   .intro{padding:12px 12px 11px}
   .intro h1{font-size:23px;margin:5px 0 5px;line-height:1.02}
