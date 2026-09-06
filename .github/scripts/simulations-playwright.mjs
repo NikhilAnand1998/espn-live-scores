@@ -69,9 +69,19 @@ try {
   assert(await page.locator('.simulation-pick').count() >= 16, 'expanded top draft renders all selections');
 
   await page.locator('[data-simulation-filter="hero_rb"]').click();
-  await page.waitForTimeout(250);
-  assert(await page.locator('.simulation-draft-card').count() === payload.byStrategy.hero_rb.length, 'strategy filter renders only Hero RB drafts');
-  assert((await page.locator('.simulation-draft-title small').first().innerText()).includes('Hero RB'), 'filtered cards match selected strategy');
+  const heroIds = payload.byStrategy.hero_rb.map(draft => draft.id);
+  await page.waitForFunction(expectedIds => {
+    const actualIds = [...document.querySelectorAll('.simulation-draft-card')]
+      .map(card => card.getAttribute('data-simulation-draft'));
+    return actualIds.length === expectedIds.length
+      && actualIds.every(id => expectedIds.includes(id));
+  }, heroIds, { timeout: 5000 });
+  const filteredIds = await page.locator('.simulation-draft-card').evaluateAll(cards =>
+    cards.map(card => card.getAttribute('data-simulation-draft'))
+  );
+  assert(filteredIds.length === heroIds.length, 'strategy filter renders only Hero RB drafts');
+  assert(filteredIds.every(id => heroIds.includes(id)), 'filtered cards match selected strategy');
+  assert(await page.locator('[data-simulation-filter="hero_rb"]').getAttribute('aria-pressed') === 'true', 'strategy filter exposes its selected state');
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert(overflow <= 1, 'simulation tab has no horizontal overflow on a 390px phone', `overflow=${overflow}`);
