@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const STORAGE_KEY = 'pick9-adversarial-ux-v2';
+  const STORAGE_KEY = 'pick9-adversarial-ux-v3';
   const players = Array.isArray(window.players) ? window.players : [];
   const byKey = new Map(players.map(player => [player.key, player]));
   const TARGETS = { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, DEF: 1, K: 1 };

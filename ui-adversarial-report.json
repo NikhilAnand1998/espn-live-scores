@@ -1,7 +1,7 @@
 {
   "passed": true,
   "siteUrl": "http://127.0.0.1:4173/",
-  "generatedAt": "2026-09-06T18:42:11.382Z",
+  "generatedAt": "2026-09-06T19:06:19.835Z",
   "totalChecks": 142,
   "checks": [
     "site returns a successful document response",

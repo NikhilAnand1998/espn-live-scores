@@ -5,10 +5,10 @@
   const Availability = window.DraftAvailability;
   const pool = Array.isArray(window.players) ? window.players : [];
   const meta = window.draftMeta || {};
-  const storageKey = 'pick9-adversarial-ux-v2';
+  const storageKey = 'pick9-adversarial-ux-v3';
   const byKey = new Map(pool.map(player => [player.key, player]));
 
-  let state = { selected: [], retired: [], more: 0 };
+  let state = { selected: [], more: 0 };
   let history = [];
   let pathExpanded = false;
 
@@ -18,9 +18,6 @@
   } catch (_) {}
 
   state.selected = (state.selected || []).filter(key => byKey.has(key));
-  state.retired = (state.retired || []).map(list =>
-    (list || []).filter(key => byKey.has(key))
-  );
 
   const elements = {
     roundLabel: document.querySelector('#round-label'),
@@ -62,10 +59,9 @@
   }
 
   function blockedKeys() {
-    return new Set([
-      ...state.selected,
-      ...(state.retired || []).flat()
-    ]);
+    // Only the user's own selections are certain. Unselected players remain in
+    // the model so they can reappear as actionable fallers on a later turn.
+    return new Set(state.selected);
   }
 
   function rankedEntries(roundNumber = round(), currentRoster = roster()) {
@@ -271,11 +267,26 @@
   function splitBoard(entries, currentRound) {
     if (currentRound >= 15) return { fallers: [], expected: entries };
     const overallPick = Engine.PICKS[currentRound - 1];
-    const fallers = entries.filter(entry => {
-      const player = entry.player;
-      const modelRank = Number(player.ensembleRank ?? player.valueRank ?? player.adp);
-      return entry.availability.probability < 0.48 && modelRank <= overallPick - 2;
-    }).slice(0, 4);
+    const modelRank = entry => Number(entry.player.ensembleRank ?? entry.player.valueRank ?? entry.player.adp);
+    const lateGap = entry => Math.max(0, overallPick - Number(entry.availability.range?.late || entry.player.adp));
+
+    const allFallers = entries.filter(entry =>
+      entry.availability.probability < 0.48 && modelRank(entry) <= overallPick - 2
+    );
+
+    // Draft night needs plausible, decision-relevant fallers rather than four
+    // nearly impossible superstars crowding out players from the prior tier.
+    const actionable = [...allFallers].sort((a, b) =>
+      lateGap(a) - lateGap(b)
+      || b.availability.probability - a.availability.probability
+      || modelRank(a) - modelRank(b)
+    );
+    const dream = [...allFallers].sort((a, b) => modelRank(a) - modelRank(b))[0];
+    const fallers = [];
+    for (const entry of [...actionable.slice(0, 5), dream].filter(Boolean)) {
+      if (!fallers.some(existing => existing.player.key === entry.player.key)) fallers.push(entry);
+    }
+
     const fallerKeys = new Set(fallers.map(entry => entry.player.key));
     let expected = entries.filter(entry =>
       !fallerKeys.has(entry.player.key) && entry.availability.probability >= 0.22
@@ -284,7 +295,7 @@
       const used = new Set([...fallerKeys, ...expected.map(entry => entry.player.key)]);
       expected = [...expected, ...entries.filter(entry => !used.has(entry.player.key))];
     }
-    return { fallers, expected };
+    return { fallers: fallers.slice(0, 6), expected };
   }
 
   function renderBoard(currentRoster, currentRound) {
@@ -301,7 +312,7 @@
 
     const entries = rankedEntries(currentRound, currentRoster);
     const { fallers, expected } = splitBoard(entries, currentRound);
-    const baseCount = currentRound === 1 ? 7 : 6;
+    const baseCount = currentRound === 1 ? 8 : 6;
     const shown = expected.slice(0, baseCount + Number(state.more || 0));
     const firstDetails = shown[0]?.details || fallers[0]?.details || {};
     const simulationText = firstDetails.optimized && firstDetails.rollouts
@@ -321,8 +332,8 @@
       ${fallers.length ? `
         <section class="board-section faller-section" aria-labelledby="faller-title">
           <div class="section-title">
-            <div><span class="eyebrow">CHECK FIRST</span><h3 id="faller-title">Premium fallers</h3></div>
-            <p>Unlikely to reach you, but priority picks when they do.</p>
+            <div><span class="eyebrow">CHECK FIRST</span><h3 id="faller-title">Actionable fallers</h3></div>
+            <p>Players from the prior tier who would be strong values if still available.</p>
           </div>
           <div class="faller-grid">${fallers.map(entry => fallerButton(entry, currentRound)).join('')}</div>
         </section>` : ''}
@@ -364,10 +375,8 @@
     runBusy(() => {
       const currentRound = round();
       const entries = rankedEntries(currentRound);
-      const index = entries.findIndex(entry => entry.player.key === playerKey);
-      if (index < 0) return;
+      if (!entries.some(entry => entry.player.key === playerKey)) return;
       snapshot();
-      state.retired[currentRound - 1] = entries.slice(0, index).map(entry => entry.player.key);
       state.selected.push(playerKey);
       state.more = 0;
       pathExpanded = false;
@@ -383,7 +392,6 @@
     runBusy(() => {
       snapshot();
       state.selected = state.selected.slice(0, index);
-      state.retired = state.retired.slice(0, index);
       state.more = 0;
       pathExpanded = false;
       save();
@@ -443,7 +451,7 @@
     if (!window.confirm('Reset the full draft tree?')) return;
     runBusy(() => {
       snapshot();
-      state = { selected: [], retired: [], more: 0 };
+      state = { selected: [], more: 0 };
       pathExpanded = false;
       save();
       render({ scroll: true });
