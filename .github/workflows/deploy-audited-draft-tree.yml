@@ -1,4 +1,4 @@
-name: Deploy Optimized Draft Tree
+name: Adversarial UI Review and Deploy
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
       - .github/scripts/enrich-draft-tree-lineupbeat.mjs
       - .github/scripts/enrich-draft-tree-market-props.mjs
       - .github/scripts/finalize-draft-tree-model.mjs
-      - .github/scripts/smoke-test-draft-optimizer.mjs
+      - .github/scripts/ui-adversarial-playwright.mjs
       - .github/workflows/deploy-audited-draft-tree.yml
   workflow_dispatch:
 
@@ -19,9 +19,11 @@ permissions:
   contents: write
 
 jobs:
-  build-test-and-publish:
+  review-test-and-publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.0-noble
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -34,11 +36,11 @@ jobs:
           ref: gh-pages
           path: site
 
-      - name: Install data builder
+      - name: Install build and browser-test packages
         working-directory: source
         run: |
           npm init -y >/dev/null
-          npm install --save-exact cheerio@1.1.2 >/dev/null
+          npm install --save-exact cheerio@1.1.2 playwright@1.55.0 http-server@14.1.1 >/dev/null
 
       - name: Build current exact-format data
         run: node source/.github/scripts/build-draft-tree-data.mjs site/data.js
@@ -46,49 +48,82 @@ jobs:
       - name: Add current consensus ranks
         run: node source/.github/scripts/enrich-draft-tree-consensus.mjs site/data.js
 
-      - name: Add independent rankings and uncertainty ranges
+      - name: Add supplemental rankings and uncertainty ranges
+        continue-on-error: true
         run: node source/.github/scripts/enrich-draft-tree-external-models.mjs site/data.js
 
-      - name: Add current LineupBeat half-PPR projections
+      - name: Add independent half-PPR projections
         run: node source/.github/scripts/enrich-draft-tree-lineupbeat.mjs site/data.js
 
-      - name: Add market-priced half-PPR player props
+      - name: Add optional market-priced player props
+        continue-on-error: true
         run: node source/.github/scripts/enrich-draft-tree-market-props.mjs site/data.js
 
       - name: Finalize null-safe ensemble values
         run: node source/.github/scripts/finalize-draft-tree-model.mjs site/data.js
 
-      - name: Check JavaScript syntax
-        run: |
-          node --check source/draft-tree-site/engine.js
-          node --check source/draft-tree-site/engine-patch.js
-          node --check source/draft-tree-site/model-meta.js
-          node --check source/draft-tree-site/app.js
-
-      - name: Smoke-test optimized recommendation branches
-        run: node source/.github/scripts/smoke-test-draft-optimizer.mjs site/data.js source/draft-tree-site/engine.js source/draft-tree-site/engine-patch.js
-
-      - name: Copy optimized application
+      - name: Assemble the exact site bundle to be tested
         run: |
           cp source/draft-tree-site/index.html site/index.html
           cp source/draft-tree-site/style.css site/style.css
           cp source/draft-tree-site/engine.js site/engine.js
           cp source/draft-tree-site/engine-patch.js site/engine-patch.js
+          cp source/draft-tree-site/availability.js site/availability.js
           cp source/draft-tree-site/model-meta.js site/model-meta.js
-          cp source/draft-tree-site/app.js site/app.js
-          rm -f site/patch.js
+          cp source/draft-tree-site/app-v2.js site/app-v2.js
+          rm -f site/patch.js site/app.js site/auto-board.js site/auto-board.css
           touch site/.nojekyll
 
-      - name: Commit and publish
+      - name: Check JavaScript syntax
+        run: |
+          node --check site/data.js
+          node --check site/engine.js
+          node --check site/engine-patch.js
+          node --check site/availability.js
+          node --check site/model-meta.js
+          node --check site/app-v2.js
+          node --check source/.github/scripts/ui-adversarial-playwright.mjs
+
+      - name: Start local preview
+        working-directory: source
+        run: |
+          npx http-server ../site -p 4173 -c-1 > /tmp/pick9-http.log 2>&1 &
+          echo $! > /tmp/pick9-http.pid
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/pick9-http.log
+          exit 1
+
+      - name: Run adversarial Playwright UI and UX audit
+        working-directory: source
+        env:
+          SITE_URL: http://127.0.0.1:4173/
+          REPORT_PATH: ../site/ui-adversarial-report.json
+        run: node .github/scripts/ui-adversarial-playwright.mjs
+
+      - name: Upload adversarial review report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pick9-ui-adversarial-review
+          path: site/ui-adversarial-report.json
+          if-no-files-found: error
+
+      - name: Publish only after Playwright passes
         working-directory: site
         run: |
+          git config --global --add safe.directory "$PWD"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html style.css engine.js engine-patch.js model-meta.js app.js data.js .nojekyll
+          git add index.html style.css engine.js engine-patch.js availability.js model-meta.js app-v2.js data.js ui-adversarial-report.json .nojekyll
           git add -u
           if git diff --cached --quiet; then
             echo "No site changes to publish."
           else
-            git commit -m "Deploy market-informed Monte Carlo draft optimizer"
+            git commit -m "Deploy adversarially reviewed no-tracking draft UX"
             git push origin HEAD:gh-pages
           fi
