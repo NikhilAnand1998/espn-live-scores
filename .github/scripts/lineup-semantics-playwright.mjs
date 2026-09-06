@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 
 const siteUrl = process.env.SITE_URL || 'http://127.0.0.1:4173/';
-const STORAGE_KEY = 'pick9-adversarial-ux-v2';
+const STORAGE_KEY = 'pick9-adversarial-ux-v3';
 const checks = [];
 
 function assert(value, label, details = '') {
@@ -23,7 +23,20 @@ async function setRoster(page, rbCount, wrCount) {
     return [...rbs, ...wrs].map(player => player.key);
   }, { rbCount, wrCount });
   await page.evaluate(({ key, selected }) => {
-    localStorage.setItem(key, JSON.stringify({ selected, retired: [], more: 0 }));
+    localStorage.setItem(key, JSON.stringify({ selected, more: 0 }));
+  }, { key: STORAGE_KEY, selected });
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+  await waitReady(page);
+}
+
+async function setSelectedNames(page, names) {
+  const selected = await page.evaluate(namesToFind => namesToFind.map(name => {
+    const player = window.players.find(candidate => candidate.name === name || candidate.name.replace(/\s+(?:III|II|Jr\.)$/i, '') === name);
+    if (!player) throw new Error(`Player not found: ${name}`);
+    return player.key;
+  }), names);
+  await page.evaluate(({ key, selected }) => {
+    localStorage.setItem(key, JSON.stringify({ selected, more: 0 }));
   }, { key: STORAGE_KEY, selected });
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitReady(page);
@@ -46,6 +59,17 @@ try {
   assert(rules.engine.RB === 2 && rules.engine.WR === 2 && rules.engine.FLEX === 1, 'recommendation engine is configured for 2 RB, 2 WR, and 1 FLEX');
   assert(rules.ui.RB === 2 && rules.ui.WR === 2 && rules.ui.FLEX === 1, 'UI lineup model matches the recommendation engine');
 
+  assert(await page.locator('[data-player-name="Chase Brown"]').count() === 1, 'Chase Brown is surfaced on the visible pick-9 board');
+  const chaseRoundOneSection = await page.locator('[data-player-name="Chase Brown"]').evaluate(element => element.closest('.faller-section') ? 'faller' : 'expected');
+  assert(chaseRoundOneSection === 'expected', 'Chase Brown is correctly classified as expected at pick 9 rather than a faller');
+
+  await setSelectedNames(page, ['James Cook']);
+  assert((await page.locator('#round-label').innerText()).includes('Round 2'), 'James Cook test state advances to Round 2');
+  assert(await page.locator('.faller-button[data-player-name="Chase Brown"]').count() === 1, 'Chase Brown is surfaced as an actionable Round 2 faller if still available');
+  assert((await page.locator('#faller-title').innerText()) === 'Actionable fallers', 'faller section prioritizes decision-relevant players');
+  const savedState = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}'), STORAGE_KEY);
+  assert(!Object.prototype.hasOwnProperty.call(savedState, 'retired'), 'unselected players are no longer auto-retired from later rounds');
+
   await setRoster(page, 3, 3);
   const chipText = async slot => (await page.locator(`[data-slot="${slot}"]`).innerText()).replace(/\s+/g, ' ').trim();
   assert((await chipText('RB')) === '2/2 RB', 'three drafted RBs display as two RB starter slots filled');
@@ -55,11 +79,11 @@ try {
   const allChips = (await page.locator('#roster-chips').innerText()).replace(/\s+/g, ' ');
   assert(!allChips.includes('3 RB') && !allChips.includes('3 WR'), 'header no longer double-counts drafted totals as starting slots');
 
-  const allocation = await page.evaluate(() => {
-    const roster = JSON.parse(localStorage.getItem('pick9-adversarial-ux-v2')).selected
-      .map(key => window.players.find(player => player.key === key));
+  const allocation = await page.evaluate(key => {
+    const roster = JSON.parse(localStorage.getItem(key)).selected
+      .map(playerKey => window.players.find(player => player.key === playerKey));
     return window.DraftLineup.allocate(roster);
-  });
+  }, STORAGE_KEY);
   assert(allocation.filled.RB === 2 && allocation.filled.WR === 2 && allocation.filled.FLEX === 1 && allocation.bench === 1, 'lineup allocator produces 2 RB, 2 WR, 1 FLEX, and 1 bench from a 3-RB/3-WR roster');
 
   await page.locator('#team-toggle').click();
@@ -68,25 +92,25 @@ try {
   assert(summary.includes('RB and WR totals are not extra starting slots'), 'expanded roster explains starter versus bench counting');
 
   await setRoster(page, 2, 2);
-  const roles = await page.evaluate(() => {
-    const roster = JSON.parse(localStorage.getItem('pick9-adversarial-ux-v2')).selected
-      .map(key => window.players.find(player => player.key === key));
+  const roles = await page.evaluate(key => {
+    const roster = JSON.parse(localStorage.getItem(key)).selected
+      .map(playerKey => window.players.find(player => player.key === playerKey));
     const extraRb = window.players.find(player => player.pos === 'RB' && !roster.some(selected => selected.key === player.key));
     const extraWr = window.players.find(player => player.pos === 'WR' && !roster.some(selected => selected.key === player.key));
     return {
       rb: window.DraftLineup.roleFor(extraRb, roster),
       wr: window.DraftLineup.roleFor(extraWr, roster)
     };
-  });
+  }, STORAGE_KEY);
   assert(roles.rb === 'Fills FLEX starter 1/1' && roles.wr === 'Fills FLEX starter 1/1', 'a third RB or WR is classified as the FLEX starter when FLEX is open');
 
   await setRoster(page, 3, 3);
-  const benchRole = await page.evaluate(() => {
-    const roster = JSON.parse(localStorage.getItem('pick9-adversarial-ux-v2')).selected
-      .map(key => window.players.find(player => player.key === key));
+  const benchRole = await page.evaluate(key => {
+    const roster = JSON.parse(localStorage.getItem(key)).selected
+      .map(playerKey => window.players.find(player => player.key === playerKey));
     const extraRb = window.players.find(player => player.pos === 'RB' && !roster.some(selected => selected.key === player.key));
     return window.DraftLineup.roleFor(extraRb, roster);
-  });
+  }, STORAGE_KEY);
   assert(benchRole === 'Bench/depth value', 'additional RB or WR recommendations are labeled as bench depth after FLEX is filled');
 
   const visibleRoles = await page.locator('.lineup-role').allInnerTexts();
