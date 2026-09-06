@@ -11,9 +11,11 @@ on:
       - .github/scripts/enrich-draft-tree-lineupbeat.mjs
       - .github/scripts/enrich-draft-tree-market-props.mjs
       - .github/scripts/finalize-draft-tree-model.mjs
+      - .github/scripts/generate-best-simulated-drafts.mjs
       - .github/scripts/patch-actionable-fallers.mjs
       - .github/scripts/ui-adversarial-playwright-v2.mjs
       - .github/scripts/lineup-semantics-playwright.mjs
+      - .github/scripts/simulations-playwright.mjs
       - .github/workflows/deploy-audited-draft-tree.yml
   workflow_dispatch:
 
@@ -27,7 +29,7 @@ permissions:
 jobs:
   review-test-and-publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     container:
       image: mcr.microsoft.com/playwright:v1.55.0-noble
     steps:
@@ -68,17 +70,26 @@ jobs:
       - name: Finalize null-safe ensemble values
         run: node source/.github/scripts/finalize-draft-tree-model.mjs site/data.js
 
+      - name: Simulate and rank complete strategy drafts
+        env:
+          SIMULATION_ROOMS: 5000
+          SIMULATION_SEED: 20260906
+        run: node source/.github/scripts/generate-best-simulated-drafts.mjs site/data.js source/draft-tree-site/engine.js source/draft-tree-site/availability.js site/simulated-drafts.js
+
       - name: Assemble the exact site bundle to be tested
         run: |
           cp source/draft-tree-site/index.html site/index.html
           cp source/draft-tree-site/style.css site/style.css
           cp source/draft-tree-site/adversarial-tuning.css site/adversarial-tuning.css
+          cp source/draft-tree-site/simulations.css site/simulations.css
           cp source/draft-tree-site/engine.js site/engine.js
           cp source/draft-tree-site/engine-patch.js site/engine-patch.js
           cp source/draft-tree-site/availability.js site/availability.js
           cp source/draft-tree-site/model-meta.js site/model-meta.js
           node source/.github/scripts/patch-actionable-fallers.mjs source/draft-tree-site/app-v2.js site/app-v2.js
           cp source/draft-tree-site/lineup-semantics.js site/lineup-semantics.js
+          cp source/draft-tree-site/simulation-render.js site/simulation-render.js
+          cp source/draft-tree-site/simulation-tabs.js site/simulation-tabs.js
           printf '%s\n' "$GITHUB_SHA" > site/build-id.txt
           rm -f site/patch.js site/app.js site/auto-board.js site/auto-board.css
           touch site/.nojekyll
@@ -92,9 +103,14 @@ jobs:
           node --check site/model-meta.js
           node --check site/app-v2.js
           node --check site/lineup-semantics.js
+          node --check site/simulated-drafts.js
+          node --check site/simulation-render.js
+          node --check site/simulation-tabs.js
+          node --check source/.github/scripts/generate-best-simulated-drafts.mjs
           node --check source/.github/scripts/patch-actionable-fallers.mjs
           node --check source/.github/scripts/ui-adversarial-playwright-v2.mjs
           node --check source/.github/scripts/lineup-semantics-playwright.mjs
+          node --check source/.github/scripts/simulations-playwright.mjs
 
       - name: Start local preview
         working-directory: source
@@ -123,25 +139,33 @@ jobs:
           SITE_URL: http://127.0.0.1:4173/
         run: node .github/scripts/lineup-semantics-playwright.mjs
 
-      - name: Upload pre-deployment adversarial report
+      - name: Verify ranked simulation lab locally
+        working-directory: source
+        env:
+          SITE_URL: http://127.0.0.1:4173/
+        run: node .github/scripts/simulations-playwright.mjs
+
+      - name: Upload pre-deployment review artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pick9-ui-adversarial-review
-          path: site/ui-adversarial-report.json
+          name: pick9-predeployment-review-and-simulations
+          path: |
+            site/ui-adversarial-report.json
+            site/simulated-drafts.js
           if-no-files-found: error
 
-      - name: Publish only after local Playwright passes
+      - name: Publish only after all local Playwright tests pass
         working-directory: site
         run: |
           git config --global --add safe.directory "$PWD"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html style.css adversarial-tuning.css engine.js engine-patch.js availability.js model-meta.js app-v2.js lineup-semantics.js data.js build-id.txt ui-adversarial-report.json .nojekyll
+          git add index.html style.css adversarial-tuning.css simulations.css engine.js engine-patch.js availability.js model-meta.js app-v2.js lineup-semantics.js simulated-drafts.js simulation-render.js simulation-tabs.js data.js build-id.txt ui-adversarial-report.json .nojekyll
           git add -u
           if git diff --cached --quiet; then
             echo "No site changes to publish."
           else
-            git commit -m "Deploy actionable-faller no-retirement draft UX"
+            git commit -m "Deploy ranked simulated draft strategy lab"
             git push origin HEAD:gh-pages
           fi
 
@@ -172,7 +196,13 @@ jobs:
           SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
         run: node .github/scripts/lineup-semantics-playwright.mjs
 
-      - name: Upload public-site adversarial report
+      - name: Verify ranked simulation lab on public GitHub Pages
+        working-directory: source
+        env:
+          SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
+        run: node .github/scripts/simulations-playwright.mjs
+
+      - name: Upload public-site review report
         uses: actions/upload-artifact@v4
         with:
           name: pick9-public-ui-adversarial-review
