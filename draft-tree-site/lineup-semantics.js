@@ -74,20 +74,21 @@
 
   function renderLineupSummary() {
     if (!teamBody) return;
-    const existing = teamBody.querySelector('.lineup-format-summary');
     const allocation = allocateLineup(selectedRoster());
+    const signature = `${allocation.filled.QB}|${allocation.filled.RB}|${allocation.filled.WR}|${allocation.filled.TE}|${allocation.filled.FLEX}|${allocation.bench}`;
     const status = `QB ${allocation.filled.QB}/1 · RB ${allocation.filled.RB}/2 · WR ${allocation.filled.WR}/2 · TE ${allocation.filled.TE}/1 · FLEX ${allocation.filled.FLEX}/1 · BN ${allocation.bench}`;
-    const markup = `
-      <div class="lineup-format-summary">
-        <b>Starting lineup: 1 QB · 2 RB · 2 WR · 1 TE · 1 FLEX · DEF · K</b>
-        <span>${status}</span>
-        <small>RB and WR totals are not extra starting slots. Any player beyond the required starters fills FLEX first, then the bench.</small>
-      </div>`;
-    if (existing) {
-      if (existing.outerHTML.trim() !== markup.trim()) existing.outerHTML = markup;
-    } else {
-      teamBody.insertAdjacentHTML('afterbegin', markup);
+    let summary = teamBody.querySelector('.lineup-format-summary');
+    if (!summary) {
+      summary = document.createElement('div');
+      summary.className = 'lineup-format-summary';
+      teamBody.prepend(summary);
     }
+    if (summary.dataset.signature === signature) return;
+    summary.dataset.signature = signature;
+    summary.innerHTML = `
+      <b>Starting lineup: 1 QB · 2 RB · 2 WR · 1 TE · 1 FLEX · DEF · K</b>
+      <span>${status}</span>
+      <small>RB and WR totals are not extra starting slots. Any player beyond the required starters fills FLEX first, then the bench.</small>`;
   }
 
   function candidateRole(player, roster) {
@@ -120,7 +121,7 @@
         role.className = 'lineup-role';
         reasonList.prepend(role);
       }
-      role.textContent = label;
+      if (role.textContent !== label) role.textContent = label;
     }
   }
 
@@ -130,7 +131,15 @@
     annotateRecommendationRoles();
   }
 
-  const observer = new MutationObserver(() => queueMicrotask(refresh));
+  let refreshQueued = false;
+  const observer = new MutationObserver(() => {
+    if (refreshQueued) return;
+    refreshQueued = true;
+    queueMicrotask(() => {
+      refreshQueued = false;
+      refresh();
+    });
+  });
   if (chips) observer.observe(chips, { childList: true, subtree: true });
   if (teamBody) observer.observe(teamBody, { childList: true, subtree: true });
   if (board) observer.observe(board, { childList: true, subtree: true });
