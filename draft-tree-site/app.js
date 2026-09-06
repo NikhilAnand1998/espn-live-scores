@@ -2,19 +2,13 @@
   'use strict';
 
   const Engine = window.DraftEngine;
+  const Availability = window.DraftAvailability;
   const pool = Array.isArray(window.players) ? window.players : [];
   const meta = window.draftMeta || {};
-  const storageKey = 'pick9-optimized-tree-v4';
+  const storageKey = 'pick9-availability-tree-v5';
   const byKey = new Map(pool.map(player => [player.key, player]));
 
-  let state = {
-    selected: [],
-    gone: [],
-    retired: [],
-    autoBatches: [],
-    autoMode: true,
-    more: 0
-  };
+  let state = { selected: [], retired: [], more: 0 };
   let history = [];
 
   try {
@@ -23,29 +17,9 @@
   } catch (_) {}
 
   state.selected = (state.selected || []).filter(key => byKey.has(key));
-  state.gone = (state.gone || []).filter(key => byKey.has(key));
   state.retired = (state.retired || []).map(list =>
     (list || []).filter(key => byKey.has(key))
   );
-  state.autoMode = state.autoMode !== false;
-  state.autoBatches = (state.autoBatches || []).map((batch, index) => {
-    if (!batch || typeof batch !== 'object') return null;
-    const hidden = [...new Set((batch.hidden || []).filter(key => byKey.has(key)))];
-    const reserve = [...new Set((batch.reserve || []).filter(key =>
-      byKey.has(key) && !hidden.includes(key)
-    ))];
-    return {
-      afterRound: Number(batch.afterRound || index + 1),
-      count: Number(batch.count || hidden.length),
-      rollouts: Number(batch.rollouts || 0),
-      hidden,
-      reserve,
-      probabilities: batch.probabilities && typeof batch.probabilities === 'object'
-        ? batch.probabilities
-        : {},
-      restored: [...new Set((batch.restored || []).filter(key => byKey.has(key)))]
-    };
-  });
 
   const $ = selector => document.querySelector(selector);
   const treeEl = $('#tree');
@@ -55,6 +29,7 @@
   const undoEl = $('#undo');
   const resetEl = $('#reset');
   const sourceEl = $('#source-note');
+  const liveEl = $('#live-status');
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -77,27 +52,20 @@
     return `${round}.${String(round % 2 ? 9 : 6).padStart(2, '0')}`;
   }
 
-  function autoHiddenKeys() {
-    return (state.autoBatches || []).flatMap(batch => batch?.hidden || []);
-  }
-
   function blockedKeys() {
     return new Set([
       ...state.selected,
-      ...state.gone,
-      ...(state.retired || []).flat(),
-      ...autoHiddenKeys()
+      ...(state.retired || []).flat()
     ]);
   }
 
-  function rankings(round = currentRound(), currentRoster = roster()) {
+  function rawRankings(round = currentRound(), currentRoster = roster()) {
     return Engine.rankPlayers(pool, blockedKeys(), currentRoster, round);
   }
 
-  function currentAutoBatch(round = currentRound()) {
-    if (round <= 1) return null;
-    const batch = state.autoBatches?.[round - 2] || null;
-    return batch?.afterRound === round - 1 ? batch : null;
+  function rankings(round = currentRound(), currentRoster = roster()) {
+    const pick = Engine.PICKS[round - 1];
+    return rawRankings(round, currentRoster).map(entry => Availability.annotate(entry, pick));
   }
 
   function save() {
@@ -111,13 +79,36 @@
     if (history.length > 50) history.shift();
   }
 
+  function announce(message) {
+    if (!liveEl) return;
+    liveEl.textContent = '';
+    requestAnimationFrame(() => { liveEl.textContent = message; });
+  }
+
+  function setBusy(busy, message = 'Updating recommendations') {
+    document.body.classList.toggle('is-calculating', busy);
+    document.body.setAttribute('aria-busy', String(busy));
+    if (busy) announce(message);
+  }
+
+  function runBusy(task, message) {
+    setBusy(true, message);
+    window.setTimeout(() => {
+      try {
+        task();
+      } finally {
+        setBusy(false);
+      }
+    }, 24);
+  }
+
   function scrollToBranch() {
     const branch = $('#branch');
     if (!branch) return;
     branch.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    setTimeout(() => {
+    window.setTimeout(() => {
       const headerHeight = $('header')?.offsetHeight || 0;
-      window.scrollBy({ top: -(headerHeight + 10), behavior: 'instant' });
+      window.scrollBy({ top: -(headerHeight + 8), behavior: 'instant' });
     }, 180);
   }
 
@@ -125,26 +116,31 @@
     const draftCount = Number(meta.draftCount || 0).toLocaleString();
     const dateText = meta.endDate ? `through ${meta.endDate}` : (meta.generatedAt || 'current');
     const external = [
-      meta.rotowireMatches ? `${meta.rotowireMatches} RotoWire ranks` : '',
-      meta.lineupBeatMatches ? `${meta.lineupBeatMatches} independent half-PPR projections` : '',
+      meta.lineupBeatMatches ? `${meta.lineupBeatMatches} independent projections` : '',
       meta.marketPropMatches ? `${meta.marketPropMatches} market-priced projections` : '',
-      meta.giqProjectionMatches ? `${meta.giqProjectionMatches} GIQ projections` : ''
+      meta.rotowireMatches ? `${meta.rotowireMatches} expert ranks` : ''
     ].filter(Boolean).join(' · ');
-    const boardModel = Engine.AUTO_BOARD_VERSION
-      ? ` · ${Engine.AUTO_BOARD_LABEL || 'Auto board'} ${Engine.AUTO_BOARD_VERSION}`
-      : '';
-    return `${draftCount || 'Current'} exact-format mocks ${dateText} · ${external || 'multi-source projections'} · ${Engine.MODEL_LABEL || 'lookahead optimizer'} ${Engine.MODEL_VERSION || ''}${boardModel}`;
+    return `${draftCount || 'Current'} exact-format mocks ${dateText} · ${external || 'multi-source player model'} · ${Engine.MODEL_LABEL || 'lookahead optimizer'} · ${Availability.version}`;
+  }
+
+  function compactTeamLabel(currentRoster) {
+    if (!currentRoster.length) return 'No picks yet';
+    const names = currentRoster.slice(-3).map(player => {
+      const parts = player.name.split(' ');
+      return parts.at(-1) || player.name;
+    });
+    return `${names.join(' · ')}${currentRoster.length > 3 ? ` +${currentRoster.length - 3}` : ''}`;
   }
 
   function statusMarkup(round, currentRoster) {
     const parts = [
-      `<span class="pill"><b>${round <= 16 ? `Round ${round}` : 'Complete'}</b></span>`
+      `<span class="pill primary"><b>${round <= 16 ? `Round ${round}` : 'Complete'}</b></span>`
     ];
     if (round <= 16) {
-      parts.push(`<span class="pill">Pick <b>${pickLabel(round)} / #${Engine.PICKS[round - 1]}</b></span>`);
+      parts.push(`<span class="pill">Your pick <b>${pickLabel(round)} · #${Engine.PICKS[round - 1]}</b></span>`);
     }
-    parts.push(`<span class="pill">Board <b>${state.autoMode ? 'AUTO' : 'MANUAL'}</b></span>`);
-    parts.push(`<span class="pill">Path <b>${escapeHtml(Engine.construction(currentRoster))}</b></span>`);
+    parts.push('<span class="pill">Opponent tracking <b>not required</b></span>');
+    parts.push(`<span class="pill">Build <b>${escapeHtml(Engine.construction(currentRoster))}</b></span>`);
     return parts.join('');
   }
 
@@ -154,20 +150,16 @@
       .map(pos => `<span><b>${counts[pos]}</b> ${pos}</span>`)
       .join('');
     const list = currentRoster.length
-      ? currentRoster.map((player, index) => `R${index + 1}: <b>${escapeHtml(player.name)}</b> (${player.pos})`).join('<br>')
-      : 'No picks yet';
+      ? currentRoster.map((player, index) => `R${index + 1}: <b>${escapeHtml(player.name)}</b> <small>${player.pos} · ADP ${Number(player.adp).toFixed(1)}</small>`).join('<br>')
+      : 'Your selections will appear here.';
     return `<div class="counts">${countMarkup}</div><div class="roster">${list}</div>`;
   }
 
   function nodeMarkup(player, index, fullRoster) {
     const round = index + 1;
     const nextPlan = Engine.plan(round + 1, fullRoster.slice(0, index + 1));
-    const autoBatch = state.autoBatches?.[index];
-    const autoText = autoBatch?.hidden?.length
-      ? ` · ${autoBatch.hidden.length} opponent picks auto-estimated`
-      : '';
     return `
-      <section class="node">
+      <section class="node" aria-label="Round ${round}: ${escapeHtml(player.name)}">
         <div class="node-row">
           <div class="round"><b>R${round}</b><small>${pickLabel(round)} · #${Engine.PICKS[index]}</small></div>
           <div class="player">
@@ -176,7 +168,7 @@
           </div>
           <button class="change" data-edit="${index}" aria-label="Change Round ${round} selection">Change</button>
         </div>
-        <div class="effect">Next: ${escapeHtml(nextPlan)}${escapeHtml(autoText)}</div>
+        <div class="effect">Next plan: ${escapeHtml(nextPlan)}</div>
       </section>`;
   }
 
@@ -185,39 +177,47 @@
     const projection = Number(player.projectionEnsemble ?? player.projection);
     const vor = Number(player.vor);
     if (Number.isFinite(ensemble)) {
-      return `Ensemble #${ensemble.toFixed(1)} · ${Number.isFinite(projection) ? `${projection.toFixed(0)} pts` : 'projection estimated'}`;
+      return `Model rank ${ensemble.toFixed(1)}${Number.isFinite(projection) ? ` · ${projection.toFixed(0)} projected pts` : ''}`;
     }
-    if (Number.isFinite(vor)) return `14T VOR ${vor >= 0 ? '+' : ''}${vor.toFixed(1)}`;
+    if (Number.isFinite(vor)) return `14-team VOR ${vor >= 0 ? '+' : ''}${vor.toFixed(1)}`;
     return 'Multi-source value estimate';
+  }
+
+  function availabilityMarkup(availability) {
+    const probability = Math.round(availability.probability * 100);
+    return `
+      <span class="availability ${availability.key}">
+        <b>${escapeHtml(availability.text)}</b>
+        <small>${probability}% modeled chance · usual range ${availability.range.early}–${availability.range.late}</small>
+      </span>`;
   }
 
   function optimizationMetrics(entry, index, round) {
     const details = entry.details || {};
     const metrics = [];
     if (details.optimized) {
-      metrics.push(`${details.rollouts} board simulations · ${details.horizon}-turn lookahead`);
-      if (index === 0) metrics.push(`${details.confidence || 'Model preferred'}${details.edge > 0 ? ` · edge +${details.edge.toFixed(1)}` : ''}`);
-      else if (Number.isFinite(details.behindTop)) metrics.push(`${details.behindTop.toFixed(1)} model points behind #1`);
-      if (details.commonNextPositions && round < 16) metrics.push(`Common continuation: ${details.commonNextPositions}`);
+      metrics.push(`${details.rollouts} board simulations`);
+      metrics.push(`${details.horizon}-turn lookahead`);
+      if (index === 0 && details.confidence) metrics.push(details.confidence);
+      else if (Number.isFinite(details.behindTop)) metrics.push(`${details.behindTop.toFixed(1)} model pts behind #1`);
+      if (details.commonNextPositions && round < 16) metrics.push(`Next path: ${details.commonNextPositions}`);
     }
     return metrics;
   }
 
-  function cardMarkup(entry, index, round, currentRoster) {
+  function recommendationCard(entry, index, round, currentRoster) {
     const player = entry.player;
     const details = entry.details || {};
     const labels = Engine.reasons(entry, currentRoster, round, index);
-    const chance = Math.round((details.goneChance ?? 0) * 100);
     const nextPlan = round === 16 ? 'Draft complete' : Engine.plan(round + 1, [...currentRoster, player]);
     const status = player.status
       ? `<div class="player-alert ${player.excluded ? 'danger' : ''}"><b>${escapeHtml(player.status)}</b>${player.statusNote ? ` · ${escapeHtml(player.statusNote)}` : ''}</div>`
       : '';
     const metrics = [valueLabel(player), ...optimizationMetrics(entry, index, round)];
-    if (round < 16) metrics.push(`${chance}% chance gone by next turn`);
 
     return `
-      <article class="card ${index === 0 ? 'best' : ''} ${details.confidence === 'Close alternative' ? 'close' : ''}">
-        <button class="draft" data-pick="${escapeHtml(player.key)}" aria-label="Draft ${escapeHtml(player.name)}">
+      <article class="card ${index === 0 ? 'best' : ''}" data-recommendation-card>
+        <div class="card-content">
           <div class="card-top">
             <div class="pos">${player.pos}</div>
             <div class="card-name">
@@ -226,212 +226,97 @@
             </div>
             <span class="rank">${index === 0 ? 'MODEL PICK' : `OPTION ${index + 1}`}</span>
           </div>
+          <div class="availability-row">${availabilityMarkup(entry.availability)}</div>
           <div class="metrics">${metrics.map(metric => `<span>${escapeHtml(metric)}</span>`).join('')}</div>
           <div class="why">${labels.map(label => `<span>${escapeHtml(label)}</span>`).join('')}</div>
           ${status}
-          <div class="next">If selected → ${escapeHtml(nextPlan)}</div>
-        </button>
-        <div class="card-foot">
-          <span>Tap card to draft</span>
-          <button class="gone" data-gone="${escapeHtml(player.key)}" aria-label="Mark ${escapeHtml(player.name)} taken">Taken</button>
+          <div class="next">If drafted: ${escapeHtml(nextPlan)}</div>
         </div>
+        <button class="draft-action" data-pick="${escapeHtml(player.key)}">Draft ${escapeHtml(player.name)}</button>
       </article>`;
   }
 
-  function autoBoardMarkup(round) {
-    const batch = currentAutoBatch(round);
-    const nextPick = Engine.PICKS[round] || null;
-    const upcomingGap = nextPick
-      ? Math.max(0, nextPick - Engine.PICKS[round - 1] - 1)
-      : 0;
+  function fallerButton(entry) {
+    const player = entry.player;
+    const probability = Math.round(entry.availability.probability * 100);
+    return `
+      <button class="faller" data-pick="${escapeHtml(player.key)}">
+        <span class="faller-pos">${player.pos}</span>
+        <span class="faller-name"><b>${escapeHtml(player.name)}</b><small>${probability}% chance at this pick</small></span>
+        <strong>Draft if there</strong>
+      </button>`;
+  }
 
-    if (batch?.hidden?.length) {
-      const players = batch.hidden
-        .map(key => byKey.get(key))
-        .filter(Boolean)
-        .sort((first, second) => {
-          const firstProbability = Number(batch.probabilities?.[first.key] || 0);
-          const secondProbability = Number(batch.probabilities?.[second.key] || 0);
-          return secondProbability - firstProbability || first.adp - second.adp;
-        });
-      return `
-        <details class="auto-board">
-          <summary>
-            <span><b>Auto board estimated ${batch.hidden.length} opponent picks</b><small>Open only to restore an unexpected faller.</small></span>
-            <strong>Review</strong>
-          </summary>
-          <div class="auto-body">
-            <p>These players are temporarily treated as drafted between your turns. Tap <b>Still available</b> only when your draft room shows an exception. The model will substitute the next-most-likely selection automatically.</p>
-            <div class="auto-list">
-              ${players.map(player => {
-                const probability = Math.round(Number(batch.probabilities?.[player.key] || 0) * 100);
-                return `
-                  <button class="auto-player" data-auto-restore="${escapeHtml(player.key)}">
-                    <span><b>${escapeHtml(player.name)} · ${player.pos}</b><small>${probability ? `${probability}% estimated taken` : 'Estimated taken'}</small></span>
-                    <strong>Still available</strong>
-                  </button>`;
-              }).join('')}
-            </div>
-            <button class="auto-toggle" id="toggle-auto">Switch to manual board updates</button>
-          </div>
-        </details>`;
+  function splitBoard(entries, round) {
+    if (round >= 15) return { fallers: [], expected: entries };
+    const pick = Engine.PICKS[round - 1];
+    const fallers = entries.filter(entry => {
+      const modelRank = Number(entry.player.ensembleRank ?? entry.player.valueRank ?? entry.player.adp);
+      return entry.availability.probability < 0.48 && modelRank <= pick - 2;
+    }).slice(0, 4);
+    const fallerKeys = new Set(fallers.map(entry => entry.player.key));
+    let expected = entries.filter(entry => !fallerKeys.has(entry.player.key) && entry.availability.probability >= 0.22);
+    if (expected.length < 6) {
+      const used = new Set([...fallerKeys, ...expected.map(entry => entry.player.key)]);
+      expected = [...expected, ...entries.filter(entry => !used.has(entry.player.key))];
     }
-
-    if (state.autoMode && round < 16) {
-      return `
-        <div class="auto-ready">
-          <span><b>Auto board is on</b><small>After this pick, it will estimate the ${upcomingGap} selections before ${pickLabel(round + 1)}.</small></span>
-          <button id="toggle-auto">Turn off</button>
-        </div>`;
-    }
-
-    if (!state.autoMode && round <= 16) {
-      return `
-        <div class="auto-ready manual">
-          <span><b>Manual board mode</b><small>You will need to mark recommendations Taken yourself.</small></span>
-          <button id="toggle-auto">Turn auto board on</button>
-        </div>`;
-    }
-
-    return '';
+    return { fallers, expected };
   }
 
   function branchMarkup(round, currentRoster) {
     const all = rankings(round, currentRoster);
-    const baseCount = round === 1 ? 16 : 8;
-    const shown = all.slice(0, baseCount + Number(state.more || 0));
+    const { fallers, expected } = splitBoard(all, round);
+    const baseCount = round === 1 ? 7 : 6;
+    const shown = expected.slice(0, baseCount + Number(state.more || 0));
 
-    if (!shown.length) {
+    if (!shown.length && !fallers.length) {
       return `
         <section class="branch" id="branch">
           <div class="branch-title">
             <small>ROUND ${round} · ${pickLabel(round)} · OVERALL ${Engine.PICKS[round - 1]}</small>
-            <h2>No available leaves remain</h2>
-            <p>Restore a player marked Taken, review the estimated auto board, or undo the previous action.</p>
+            <h2>No recommendations remain</h2>
+            <p>Undo or change an earlier selection to rebuild this branch.</p>
           </div>
-          ${autoBoardMarkup(round)}
-          <div class="tools">${state.gone.length ? '<button class="tool" id="restore">Restore last Taken</button>' : ''}</div>
         </section>`;
     }
 
-    const top = shown[0]?.details || {};
+    const top = shown[0]?.details || fallers[0]?.details || {};
     const modelDescription = top.optimized
-      ? `${top.rollouts} deterministic board simulations per candidate with ${top.horizon} future snake turns evaluated.`
-      : 'Late-round recommendation based on projected value, roster fit, and availability.';
-    const boardDescription = currentAutoBatch(round)?.hidden?.length
-      ? 'Opponent picks were estimated automatically; correct only unexpected fallers or a displayed player who is already taken.'
-      : state.autoMode
-        ? 'After you draft, the selections before your next turn will be estimated automatically.'
-        : 'Manual board mode is active.';
+      ? `${top.rollouts} board simulations per candidate with ${top.horizon} future snake turns evaluated.`
+      : 'Ranked by projected value, roster fit, and expected availability.';
 
     return `
-      <section class="branch" id="branch">
+      <section class="branch" id="branch" aria-labelledby="round-heading">
         <div class="branch-title">
-          <small>ROUND ${round} · ${pickLabel(round)} · OVERALL ${Engine.PICKS[round - 1]}</small>
-          <h2>${escapeHtml(Engine.plan(round, currentRoster))}</h2>
-          <p>${escapeHtml(modelDescription)} ${escapeHtml(boardDescription)}</p>
+          <small>YOU ARE ON THE CLOCK · ROUND ${round} · ${pickLabel(round)} · #${Engine.PICKS[round - 1]}</small>
+          <h2 id="round-heading">Tap the best player who is actually available</h2>
+          <p>${escapeHtml(modelDescription)} You do not need to enter the other 13 teams’ selections.</p>
         </div>
-        ${autoBoardMarkup(round)}
-        <div class="cards">${shown.map((entry, index) => cardMarkup(entry, index, round, currentRoster)).join('')}</div>
+        ${fallers.length ? `
+          <section class="faller-zone" aria-labelledby="faller-heading">
+            <div class="section-heading">
+              <div><span class="eyebrow">CHECK FIRST</span><h3 id="faller-heading">Premium fallers</h3></div>
+              <p>Only tap one of these when the player is still available in your real draft.</p>
+            </div>
+            <div class="faller-list">${fallers.map(fallerButton).join('')}</div>
+          </section>` : ''}
+        <section class="expected-zone" aria-labelledby="expected-heading">
+          <div class="section-heading">
+            <div><span class="eyebrow">MOST USEFUL ON DRAFT NIGHT</span><h3 id="expected-heading">Expected choices at your pick</h3></div>
+            <p>Ordered by projected team outcome, then adjusted for the chance each player reaches you.</p>
+          </div>
+          <div class="cards">${shown.map((entry, index) => recommendationCard(entry, index, round, currentRoster)).join('')}</div>
+        </section>
         <div class="tools">
-          ${shown.length < all.length ? '<button class="tool" id="more">Show more choices</button>' : ''}
-          ${state.gone.length ? '<button class="tool" id="restore">Restore last Taken</button>' : ''}
+          ${shown.length < expected.length ? '<button class="tool" id="more">Show 4 more possibilities</button>' : ''}
         </div>
       </section>`;
-  }
-
-  function createAutoBatch(afterRound) {
-    if (!state.autoMode || typeof Engine.predictOpponentPicks !== 'function' || afterRound >= 16) {
-      return null;
-    }
-
-    const prediction = Engine.predictOpponentPicks(pool, blockedKeys(), afterRound, {
-      extra: 14,
-      rollouts: 180,
-      seedKey: state.selected.join('>')
-    });
-    if (!prediction?.count || !prediction.selected?.length) return null;
-
-    const probabilities = {};
-    for (const entry of [...prediction.selected, ...prediction.reserve]) {
-      probabilities[entry.player.key] = Number(entry.probability || 0);
-    }
-
-    return {
-      afterRound,
-      count: prediction.count,
-      rollouts: prediction.rollouts,
-      hidden: prediction.selected.map(entry => entry.player.key),
-      reserve: prediction.reserve.map(entry => entry.player.key),
-      probabilities,
-      restored: []
-    };
-  }
-
-  function setAutoBatchAfterPick(round) {
-    state.autoBatches = state.autoBatches.slice(0, round - 1);
-    state.autoBatches[round - 1] = createAutoBatch(round);
-  }
-
-  function restoreAutoPlayer(playerKey) {
-    const round = currentRound();
-    const batchIndex = round - 2;
-    const batch = currentAutoBatch(round);
-    if (!batch || !batch.hidden.includes(playerKey)) return;
-
-    snapshot();
-    batch.hidden = batch.hidden.filter(key => key !== playerKey);
-    batch.reserve = batch.reserve.filter(key => key !== playerKey);
-    batch.restored = [...new Set([...(batch.restored || []), playerKey])];
-
-    const blockedOutsideBatch = new Set([
-      ...state.selected,
-      ...state.gone,
-      ...(state.retired || []).flat()
-    ]);
-    state.autoBatches.forEach((otherBatch, index) => {
-      if (index === batchIndex) return;
-      for (const key of otherBatch?.hidden || []) blockedOutsideBatch.add(key);
-    });
-
-    const replacementIndex = batch.reserve.findIndex(key =>
-      byKey.has(key)
-      && key !== playerKey
-      && !blockedOutsideBatch.has(key)
-      && !batch.hidden.includes(key)
-    );
-    if (replacementIndex >= 0) {
-      const [replacement] = batch.reserve.splice(replacementIndex, 1);
-      batch.hidden.push(replacement);
-    }
-
-    state.more = 0;
-    save();
-    render();
-  }
-
-  function toggleAutoMode() {
-    snapshot();
-    const round = currentRound();
-    state.autoMode = !state.autoMode;
-
-    if (round > 1 && round <= 16) {
-      const batchIndex = round - 2;
-      state.autoBatches[batchIndex] = null;
-      if (state.autoMode) {
-        state.autoBatches[batchIndex] = createAutoBatch(round - 1);
-      }
-    }
-
-    state.more = 0;
-    save();
-    render();
   }
 
   function render({ scroll = false } = {}) {
     const currentRoster = roster();
     const round = currentRound();
-    let html = '<div class="root">Your optimized draft path<small>Your pick reruns the recommendation model and the auto board estimates every opponent selection before your next turn.</small></div>';
+    let html = '<div class="root">Your draft path<small>Tap only your own selection. Each pick rebuilds the recommendations below it.</small></div>';
 
     currentRoster.forEach((player, index) => {
       html += nodeMarkup(player, index, currentRoster);
@@ -443,103 +328,85 @@
 
     treeEl.innerHTML = html;
     statusEl.innerHTML = statusMarkup(round, currentRoster);
-    constructionEl.textContent = Engine.construction(currentRoster);
+    constructionEl.textContent = compactTeamLabel(currentRoster);
     teamEl.innerHTML = teamMarkup(currentRoster);
     sourceEl.textContent = sourceText();
     undoEl.disabled = history.length === 0;
+    document.body.classList.toggle('draft-started', currentRoster.length > 0);
     bind();
     if (scroll) scrollToBranch();
   }
 
+  function selectPlayer(playerKey) {
+    const round = currentRound();
+    const current = rankings(round);
+    const index = current.findIndex(entry => entry.player.key === playerKey);
+    if (index < 0) return;
+    const player = byKey.get(playerKey);
+
+    runBusy(() => {
+      snapshot();
+      state.retired[round - 1] = current.slice(0, index).map(entry => entry.player.key);
+      state.selected.push(playerKey);
+      state.more = 0;
+      save();
+      render({ scroll: true });
+      announce(`${player.name} drafted. Round ${round + 1} recommendations are ready.`);
+    }, `Drafting ${player.name} and recalculating the tree`);
+  }
+
   function bind() {
     document.querySelectorAll('[data-pick]').forEach(button => {
-      button.addEventListener('click', () => {
-        const playerKey = button.dataset.pick;
-        const round = currentRound();
-        const current = rankings(round);
-        const index = current.findIndex(entry => entry.player.key === playerKey);
-        if (index < 0) return;
-
-        snapshot();
-        state.retired[round - 1] = current.slice(0, index).map(entry => entry.player.key);
-        state.selected.push(playerKey);
-        setAutoBatchAfterPick(round);
-        state.more = 0;
-        save();
-        render({ scroll: true });
-      });
-    });
-
-    document.querySelectorAll('[data-gone]').forEach(button => {
-      button.addEventListener('click', event => {
-        event.stopPropagation();
-        snapshot();
-        state.gone.push(button.dataset.gone);
-        state.more = 0;
-        save();
-        render();
-      });
-    });
-
-    document.querySelectorAll('[data-auto-restore]').forEach(button => {
-      button.addEventListener('click', () => restoreAutoPlayer(button.dataset.autoRestore));
+      button.addEventListener('click', () => selectPlayer(button.dataset.pick));
     });
 
     document.querySelectorAll('[data-edit]').forEach(button => {
       button.addEventListener('click', () => {
         const index = Number(button.dataset.edit);
-        snapshot();
-        state.selected = state.selected.slice(0, index);
-        state.retired = state.retired.slice(0, index);
-        state.autoBatches = state.autoBatches.slice(0, index);
-        state.more = 0;
-        save();
-        render({ scroll: true });
+        runBusy(() => {
+          snapshot();
+          state.selected = state.selected.slice(0, index);
+          state.retired = state.retired.slice(0, index);
+          state.more = 0;
+          save();
+          render({ scroll: true });
+          announce(`Round ${index + 1} reopened.`);
+        }, `Reopening Round ${index + 1}`);
       });
     });
 
-    $('#toggle-auto')?.addEventListener('click', toggleAutoMode);
-
     $('#more')?.addEventListener('click', () => {
       snapshot();
-      state.more += 8;
+      state.more += 4;
       save();
       render();
-    });
-
-    $('#restore')?.addEventListener('click', () => {
-      snapshot();
-      state.gone.pop();
-      state.more = 0;
-      save();
-      render();
+      announce('Four more draft possibilities shown.');
     });
   }
 
   undoEl.addEventListener('click', () => {
     if (!history.length) return;
-    state = JSON.parse(history.pop());
-    save();
-    render();
+    runBusy(() => {
+      state = JSON.parse(history.pop());
+      save();
+      render();
+      announce('Last action undone.');
+    }, 'Undoing the last action');
   });
 
   resetEl.addEventListener('click', () => {
     if (!window.confirm('Reset the full draft tree?')) return;
-    snapshot();
-    state = {
-      selected: [],
-      gone: [],
-      retired: [],
-      autoBatches: [],
-      autoMode: true,
-      more: 0
-    };
-    save();
-    render({ scroll: true });
+    runBusy(() => {
+      snapshot();
+      state = { selected: [], retired: [], more: 0 };
+      save();
+      render({ scroll: true });
+      announce('Draft tree reset to Round 1.');
+    }, 'Resetting the draft tree');
   });
 
-  if (!pool.length || !Engine) {
-    treeEl.innerHTML = '<section class="done"><h2>Data failed to load</h2><p>Refresh the page. If this continues, the current draft data deployment is incomplete.</p></section>';
+  if (!pool.length || !Engine || !Availability) {
+    treeEl.innerHTML = '<section class="done"><h2>Data failed to load</h2><p>Refresh the page. If this continues, the current deployment is incomplete.</p></section>';
     return;
   }
 
