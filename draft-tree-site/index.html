@@ -6,15 +6,15 @@
   <meta name="theme-color" content="#07110c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Expected-availability draft board for pick 9 in a 14-team half-PPR fantasy football snake draft.">
-  <title>Pick 9 Draft Board</title>
+  <meta name="description" content="Expected-availability draft tree for pick 9 in a 14-team half-PPR fantasy football snake draft. Tap only your own picks.">
+  <title>Pick 9 Draft Tree</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="live-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-  <div class="calculating" id="calculating" role="status" aria-live="polite" hidden>
+  <div class="calculating" role="status" aria-live="polite">
     <span class="spinner" aria-hidden="true"></span>
-    <span><b>Updating your board…</b><small>Re-ranking for your roster</small></span>
+    <b>Updating your draft tree…</b>
   </div>
 
   <div class="app">
@@ -36,8 +36,8 @@
       <section class="intro" id="intro" aria-labelledby="intro-title">
         <div class="eyebrow">NO OPPONENT TRACKING</div>
         <h1 id="intro-title">Tap only the player you draft.</h1>
-        <p>The board estimates who should reach each snake-draft turn, ranks that expected range for your roster, and separately flags premium fallers worth checking.</p>
-        <div class="three-step" aria-label="How to use this draft board">
+        <p>Check premium fallers first, then choose from the players expected to reach your snake-draft turn. No search and no need to enter the other 13 teams’ picks.</p>
+        <div class="three-step" aria-label="How to use this draft tree">
           <span><b>1</b> Check fallers</span>
           <span><b>2</b> Tap your player</span>
           <span><b>3</b> Follow the new branch</span>
@@ -69,6 +69,6 @@
   <script src="engine-patch.js"></script>
   <script src="availability.js"></script>
   <script src="model-meta.js"></script>
-  <script src="app.js"></script>
+  <script src="app-v2.js"></script>
 </body>
 </html>
