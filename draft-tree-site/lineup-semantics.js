@@ -138,6 +138,7 @@
   window.DraftLineup = {
     targets: TARGETS,
     allocate: allocateLineup,
+    roleFor: candidateRole,
     refresh
   };
 
