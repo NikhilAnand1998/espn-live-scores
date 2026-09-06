@@ -12,6 +12,7 @@ on:
       - .github/scripts/enrich-draft-tree-market-props.mjs
       - .github/scripts/finalize-draft-tree-model.mjs
       - .github/scripts/ui-adversarial-playwright-v2.mjs
+      - .github/scripts/lineup-semantics-playwright.mjs
       - .github/workflows/deploy-audited-draft-tree.yml
   workflow_dispatch:
 
@@ -76,6 +77,7 @@ jobs:
           cp source/draft-tree-site/availability.js site/availability.js
           cp source/draft-tree-site/model-meta.js site/model-meta.js
           cp source/draft-tree-site/app-v2.js site/app-v2.js
+          cp source/draft-tree-site/lineup-semantics.js site/lineup-semantics.js
           printf '%s\n' "$GITHUB_SHA" > site/build-id.txt
           rm -f site/patch.js site/app.js site/auto-board.js site/auto-board.css
           touch site/.nojekyll
@@ -88,7 +90,9 @@ jobs:
           node --check site/availability.js
           node --check site/model-meta.js
           node --check site/app-v2.js
+          node --check site/lineup-semantics.js
           node --check source/.github/scripts/ui-adversarial-playwright-v2.mjs
+          node --check source/.github/scripts/lineup-semantics-playwright.mjs
 
       - name: Start local preview
         working-directory: source
@@ -111,6 +115,12 @@ jobs:
           REPORT_PATH: ../site/ui-adversarial-report.json
         run: node .github/scripts/ui-adversarial-playwright-v2.mjs
 
+      - name: Verify 2RB 2WR FLEX lineup semantics locally
+        working-directory: source
+        env:
+          SITE_URL: http://127.0.0.1:4173/
+        run: node .github/scripts/lineup-semantics-playwright.mjs
+
       - name: Upload pre-deployment adversarial report
         uses: actions/upload-artifact@v4
         with:
@@ -124,12 +134,12 @@ jobs:
           git config --global --add safe.directory "$PWD"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html style.css adversarial-tuning.css engine.js engine-patch.js availability.js model-meta.js app-v2.js data.js build-id.txt ui-adversarial-report.json .nojekyll
+          git add index.html style.css adversarial-tuning.css engine.js engine-patch.js availability.js model-meta.js app-v2.js lineup-semantics.js data.js build-id.txt ui-adversarial-report.json .nojekyll
           git add -u
           if git diff --cached --quiet; then
             echo "No site changes to publish."
           else
-            git commit -m "Deploy adversarially reviewed no-tracking draft UX"
+            git commit -m "Deploy explicit 2RB 2WR FLEX draft UX"
             git push origin HEAD:gh-pages
           fi
 
@@ -153,6 +163,12 @@ jobs:
           SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
           REPORT_PATH: public-ui-adversarial-report.json
         run: node .github/scripts/ui-adversarial-playwright-v2.mjs
+
+      - name: Verify 2RB 2WR FLEX lineup semantics on public GitHub Pages
+        working-directory: source
+        env:
+          SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
+        run: node .github/scripts/lineup-semantics-playwright.mjs
 
       - name: Upload public-site adversarial report
         uses: actions/upload-artifact@v4
