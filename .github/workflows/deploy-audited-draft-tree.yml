@@ -66,6 +66,7 @@ jobs:
         run: |
           cp source/draft-tree-site/index.html site/index.html
           cp source/draft-tree-site/style.css site/style.css
+          cp source/draft-tree-site/adversarial-tuning.css site/adversarial-tuning.css
           cp source/draft-tree-site/engine.js site/engine.js
           cp source/draft-tree-site/engine-patch.js site/engine-patch.js
           cp source/draft-tree-site/availability.js site/availability.js
@@ -119,7 +120,7 @@ jobs:
           git config --global --add safe.directory "$PWD"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html style.css engine.js engine-patch.js availability.js model-meta.js app-v2.js data.js ui-adversarial-report.json .nojekyll
+          git add index.html style.css adversarial-tuning.css engine.js engine-patch.js availability.js model-meta.js app-v2.js data.js ui-adversarial-report.json .nojekyll
           git add -u
           if git diff --cached --quiet; then
             echo "No site changes to publish."
