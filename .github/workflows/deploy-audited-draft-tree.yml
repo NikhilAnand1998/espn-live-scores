@@ -12,6 +12,7 @@ on:
       - .github/scripts/enrich-draft-tree-market-props.mjs
       - .github/scripts/finalize-draft-tree-model.mjs
       - .github/scripts/generate-best-simulated-drafts.mjs
+      - .github/scripts/tune-simulation-generator.mjs
       - .github/scripts/patch-actionable-fallers.mjs
       - .github/scripts/ui-adversarial-playwright-v2.mjs
       - .github/scripts/lineup-semantics-playwright.mjs
@@ -70,11 +71,14 @@ jobs:
       - name: Finalize null-safe ensemble values
         run: node source/.github/scripts/finalize-draft-tree-model.mjs site/data.js
 
+      - name: Tune the simulation generator
+        run: node source/.github/scripts/tune-simulation-generator.mjs source/.github/scripts/generate-best-simulated-drafts.mjs /tmp/generate-best-simulated-drafts.mjs
+
       - name: Simulate and rank complete strategy drafts
         env:
           SIMULATION_ROOMS: 5000
           SIMULATION_SEED: 20260906
-        run: node source/.github/scripts/generate-best-simulated-drafts.mjs site/data.js source/draft-tree-site/engine.js source/draft-tree-site/availability.js site/simulated-drafts.js
+        run: node /tmp/generate-best-simulated-drafts.mjs site/data.js source/draft-tree-site/engine.js source/draft-tree-site/availability.js site/simulated-drafts.js
 
       - name: Assemble the exact site bundle to be tested
         run: |
@@ -107,6 +111,8 @@ jobs:
           node --check site/simulation-render.js
           node --check site/simulation-tabs.js
           node --check source/.github/scripts/generate-best-simulated-drafts.mjs
+          node --check source/.github/scripts/tune-simulation-generator.mjs
+          node --check /tmp/generate-best-simulated-drafts.mjs
           node --check source/.github/scripts/patch-actionable-fallers.mjs
           node --check source/.github/scripts/ui-adversarial-playwright-v2.mjs
           node --check source/.github/scripts/lineup-semantics-playwright.mjs
