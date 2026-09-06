@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Live draft assistant and ranked strategy simulations for pick 9 in a 14-team half-PPR fantasy football snake draft.">
+  <meta name="description" content="Live draft assistant and conservative strategy simulations for pick 9 in a 14-team half-PPR fantasy football snake draft.">
   <title>Pick 9 Draft Tree</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="adversarial-tuning.css">
@@ -74,23 +74,23 @@
       <section class="simulation-lab" id="simulated-drafts-panel" data-app-panel="simulations" role="tabpanel" aria-labelledby="simulated-drafts-tab" hidden>
         <header class="simulation-hero">
           <div class="eyebrow">MONTE CARLO STRATEGY LAB</div>
-          <h1>Best drafts found across thousands of complete simulations.</h1>
-          <p>Every strategy drafts from your exact snake selections—9, 20, 37, 48, and onward—against boards sampled from current 14-team half-PPR ADP and draft-position variance.</p>
+          <h1>Best practical drafts found across thousands of simulations.</h1>
+          <p>Every strategy drafts from your exact snake selections—9, 20, 37, 48, and onward. The default rankings now heavily penalize stacked low-probability falls instead of letting one unusually lucky room dominate the recommendations.</p>
           <div class="simulation-meta" id="simulation-meta" aria-label="Simulation details"></div>
         </header>
 
         <section class="simulation-section" aria-labelledby="strategy-leaderboard-heading">
           <div class="simulation-section-heading">
             <h2 id="strategy-leaderboard-heading">Strategy leaderboard</h2>
-            <p>Ranked by average finish when all seven approaches face the same simulated draft rooms.</p>
+            <p>Ranked by average conservative score when all seven approaches face the same simulated draft rooms.</p>
           </div>
           <div class="simulation-strategy-grid" id="simulation-strategy-grid"></div>
         </section>
 
         <section class="simulation-section" aria-labelledby="ranked-drafts-heading">
           <div class="simulation-section-heading">
-            <h2 id="ranked-drafts-heading">Best ranked drafts</h2>
-            <p>Start with the overall list, or tap a strategy to see its three strongest distinct rosters.</p>
+            <h2 id="ranked-drafts-heading">Best practical drafts</h2>
+            <p>The default list excludes sub-5% picks and prevents several sub-10%, sub-15%, or sub-20% fallers from being combined. Extreme upside rooms remain available under Ceiling outcomes.</p>
           </div>
           <div class="simulation-filters" id="simulation-filters" aria-label="Filter simulated drafts"></div>
           <div class="simulation-draft-list" id="simulation-draft-list"></div>
