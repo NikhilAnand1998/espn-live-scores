@@ -1,0 +1,20 @@
+name: Diagnose Chase Brown visibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/diagnose-chase-brown.mjs
+      - .github/workflows/diagnose-chase-brown.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/diagnose-chase-brown.mjs
