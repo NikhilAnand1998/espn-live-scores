@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#07110c">
-  <meta name="description" content="Monte Carlo optimized pick 9 draft tree for a 14-team half-PPR fantasy football snake draft.">
+  <meta name="description" content="Monte Carlo optimized pick 9 draft tree with automatic opponent-pick advancement for a 14-team half-PPR snake draft.">
   <title>Pick 9 Draft Optimizer</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -24,9 +24,9 @@
     </header>
 
     <section class="intro">
-      <div class="audit-badge">MULTI-SOURCE LOOKAHEAD MODEL</div>
-      <h1>Tap the player you draft.</h1>
-      <p>Your pick becomes the trunk and the optimizer simulates the next snake turns before ranking the new leaf nodes. Tap <b>Gone</b> when another manager selects one of the displayed players.</p>
+      <div class="audit-badge">AUTO-ADVANCING LOOKAHEAD MODEL</div>
+      <h1>Tap only your pick.</h1>
+      <p>After you draft, the app estimates every opponent selection before your next turn. You only correct exceptions: tap <b>Still available</b> for an unexpected faller or <b>Taken</b> when a displayed recommendation is already gone.</p>
       <div class="source-note" id="source-note"></div>
     </section>
 
@@ -41,6 +41,7 @@
   <script src="data.js"></script>
   <script src="engine.js"></script>
   <script src="engine-patch.js"></script>
+  <script src="auto-board.js"></script>
   <script src="model-meta.js"></script>
   <script src="app.js"></script>
 </body>
