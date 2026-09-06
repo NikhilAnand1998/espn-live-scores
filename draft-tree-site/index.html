@@ -6,11 +6,17 @@
   <meta name="theme-color" content="#07110c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Expected-availability draft board for pick 9 in a 14-team half-PPR fantasy football snake draft.">
-  <title>Pick 9 Draft Board</title>
+  <meta name="description" content="Expected-availability draft tree for pick 9 in a 14-team half-PPR fantasy football snake draft. Tap only your own picks.">
+  <title>Pick 9 Draft Tree</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="live-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div class="calculating" role="status" aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    <b>Updating your draft tree…</b>
+  </div>
+
   <div class="app">
     <header class="app-header">
       <div class="topbar">
@@ -19,24 +25,29 @@
           <span id="round-label">Round 1 of 16</span>
           <strong id="pick-label">Pick 1.09 · #9</strong>
         </div>
-        <button class="icon-button" id="undo" type="button" aria-label="Undo last action" disabled>↶</button>
+        <button class="icon-button" id="undo" type="button" aria-label="Undo last action" title="Undo" disabled>↶</button>
         <button class="icon-button reset" id="reset" type="button" aria-label="Reset draft">Reset</button>
       </div>
       <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
-      <div class="roster-chips" id="roster-chips" aria-label="Roster position counts"></div>
+      <div class="roster-chips" id="roster-chips" aria-label="Current roster position counts"></div>
     </header>
 
     <main>
-      <section class="intro" id="intro">
+      <section class="intro" id="intro" aria-labelledby="intro-title">
         <div class="eyebrow">NO OPPONENT TRACKING</div>
-        <h1>Tap only the player you draft.</h1>
-        <p>The board estimates who should reach each of your snake-draft turns. It ranks the expected range for your roster and separately flags valuable fallers to check.</p>
+        <h1 id="intro-title">Tap only the player you draft.</h1>
+        <p>Check premium fallers first, then choose from the players expected to reach your snake-draft turn. No search and no need to enter the other 13 teams’ picks.</p>
+        <div class="three-step" aria-label="How to use this draft tree">
+          <span><b>1</b> Check fallers</span>
+          <span><b>2</b> Tap your player</span>
+          <span><b>3</b> Follow the new branch</span>
+        </div>
         <div class="source-note" id="source-note"></div>
       </section>
 
       <section class="team-panel" aria-labelledby="team-heading">
         <button class="team-toggle" id="team-toggle" type="button" aria-expanded="false" aria-controls="team-body">
-          <span><small id="team-heading">Current team</small><strong id="construction">Empty</strong></span>
+          <span><small id="team-heading">Current team</small><strong id="construction">No picks yet</strong></span>
           <span class="team-toggle-label" id="team-toggle-label">Show roster</span>
         </button>
         <div class="team-body" id="team-body" hidden></div>
@@ -56,6 +67,7 @@
   <script src="data.js"></script>
   <script src="engine.js"></script>
   <script src="engine-patch.js"></script>
+  <script src="availability.js"></script>
   <script src="model-meta.js"></script>
   <script src="app.js"></script>
 </body>
