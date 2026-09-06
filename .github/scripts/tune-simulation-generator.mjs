@@ -25,34 +25,70 @@ replaceOnce(
 );
 
 replaceOnce(
-  `  const realism = plausibility >= 0.43 && longShotCount === 0\n    ? 'Realistic'\n    : plausibility >= 0.30 && longShotCount <= 1\n      ? 'Aggressive'\n      : 'Dream outcome';`,
-  `  const veryLongShotCount = probabilities.filter(value => value < 0.03).length;\n  const realism = plausibility >= 0.115 && veryLongShotCount === 0 && longShotCount <= 1 && reachCount <= 2\n    ? 'Realistic'\n    : plausibility >= 0.035 && veryLongShotCount <= 1 && longShotCount <= 3 && reachCount <= 4\n      ? 'Aggressive'\n      : 'Dream outcome';`,
-  'calibrated realism bands'
+  `  const longShotCount = probabilities.filter(value => value < 0.10).length;\n  const fallerCount = probabilities.filter(value => value < 0.30).length;\n  const reachCount = selections.filter(selection => {\n    const player = selection.player;\n    const allowance = Math.max(7, finite(player.sd, 8) * 0.62);\n    return finite(player.adp, 999) - selection.overall > allowance;\n  }).length;\n  const reachPenalty = selections.reduce((sum, selection) => {\n    const player = selection.player;\n    const allowance = Math.max(7, finite(player.sd, 8) * 0.62);\n    return sum + Math.max(0, finite(player.adp, 999) - selection.overall - allowance) * 1.25;\n  }, 0);\n  const realismPenalty = Math.max(0, 0.30 - plausibility) * 65\n    + longShotCount * 9\n    + probabilities.filter(value => value < 0.03).length * 8;\n  const completenessPenalty = complete ? 0 : 180;\n  const riskAdjusted = expectedStarter * 0.62 + floorStarter * 0.23 + ceilingStarter * 0.15 + benchValue;\n  const modelScore = riskAdjusted - reachPenalty - realismPenalty - completenessPenalty;\n  const realism = plausibility >= 0.43 && longShotCount === 0\n    ? 'Realistic'\n    : plausibility >= 0.30 && longShotCount <= 1\n      ? 'Aggressive'\n      : 'Dream outcome';`,
+  `  const veryLongShotCount = probabilities.filter(value => value < 0.05).length;\n  const longShotCount = probabilities.filter(value => value < 0.10).length;\n  const sub15Count = probabilities.filter(value => value < 0.15).length;\n  const sub20Count = probabilities.filter(value => value < 0.20).length;\n  const fallerCount = probabilities.filter(value => value < 0.30).length;\n  const weakestAvailability = probabilities.length ? Math.min(...probabilities) : 0;\n  const reachCount = selections.filter(selection => {\n    const player = selection.player;\n    const allowance = Math.max(7, finite(player.sd, 8) * 0.62);\n    return finite(player.adp, 999) - selection.overall > allowance;\n  }).length;\n  const reachPenalty = selections.reduce((sum, selection) => {\n    const player = selection.player;\n    const allowance = Math.max(7, finite(player.sd, 8) * 0.62);\n    return sum + Math.max(0, finite(player.adp, 999) - selection.overall - allowance) * 1.25;\n  }, 0);\n  const rarePickPenalty = probabilities.reduce((sum, probability) => {\n    if (probability < 0.05) return sum + 35 + (0.05 - probability) * 350;\n    if (probability < 0.10) return sum + 14 + (0.10 - probability) * 180;\n    if (probability < 0.15) return sum + (0.15 - probability) * 60;\n    if (probability < 0.20) return sum + (0.20 - probability) * 15;\n    return sum;\n  }, 0);\n  const stackedFallPenalty = Math.pow(Math.max(0, longShotCount - 1), 2) * 22\n    + Math.pow(Math.max(0, sub15Count - 4), 2) * 8\n    + Math.pow(Math.max(0, sub20Count - 6), 2) * 4;\n  const realismPenalty = Math.max(0, 0.22 - plausibility) * 40\n    + rarePickPenalty\n    + stackedFallPenalty;\n  const completenessPenalty = complete ? 0 : 180;\n  const riskAdjusted = expectedStarter * 0.62 + floorStarter * 0.23 + ceilingStarter * 0.15 + benchValue;\n  const modelScore = riskAdjusted - reachPenalty - realismPenalty - completenessPenalty;\n  const conservative = weakestAvailability >= 0.10\n    && longShotCount === 0\n    && sub15Count <= 3\n    && sub20Count <= 5\n    && reachCount <= 2;\n  const recommended = weakestAvailability >= 0.05\n    && veryLongShotCount === 0\n    && longShotCount <= 1\n    && sub15Count <= 4\n    && sub20Count <= 6\n    && reachCount <= 3;\n  const realism = conservative\n    ? 'Conservative'\n    : recommended\n      ? 'Value-dependent'\n      : 'Ceiling only';`,
+  'conservative stacked-faller scoring'
+);
+
+replaceOnce(
+  `    plausibility,\n    realism,\n    longShotCount,\n    fallerCount,`,
+  `    plausibility,\n    weakestAvailability,\n    realism,\n    conservative,\n    recommended,\n    veryLongShotCount,\n    longShotCount,\n    sub15Count,\n    sub20Count,\n    fallerCount,`,
+  'conservative draft diagnostics'
+);
+
+replaceOnce(
+  `  openings: new Map(),\n  top: []`,
+  `  openings: new Map(),\n  top: [],\n  practicalTop: [],\n  ceilingTop: []`,
+  'strategy-specific practical pools'
 );
 
 replaceOnce(
   `const overallTop = [];\nconst globalScores = [];`,
-  `const overallTop = [];\nconst realisticTop = [];\nconst aggressiveTop = [];\nconst globalScores = [];`,
-  'realism-specific leaderboards'
+  `const overallTop = [];\nconst practicalTop = [];\nconst ceilingTop = [];\nconst globalScores = [];`,
+  'practical and ceiling leaderboards'
 );
 
 replaceOnce(
   `    insertTop(stats.top, draft, KEEP_PER_STRATEGY);\n    insertTop(overallTop, draft, KEEP_OVERALL);\n    globalScores.push(draft.modelScore);`,
-  `    insertTop(stats.top, draft, KEEP_PER_STRATEGY);\n    insertTop(overallTop, draft, KEEP_OVERALL);\n    if (draft.realism === 'Realistic') insertTop(realisticTop, draft, KEEP_OVERALL);\n    if (draft.realism === 'Aggressive') insertTop(aggressiveTop, draft, KEEP_OVERALL);\n    globalScores.push(draft.modelScore);`,
-  'collect realistic and aggressive drafts'
+  `    insertTop(stats.top, draft, KEEP_PER_STRATEGY);\n    insertTop(overallTop, draft, KEEP_OVERALL);\n    if (draft.recommended) {\n      insertTop(stats.practicalTop, draft, KEEP_PER_STRATEGY * 4);\n      insertTop(practicalTop, draft, KEEP_OVERALL * 3);\n    } else {\n      insertTop(stats.ceilingTop, draft, KEEP_PER_STRATEGY * 2);\n      insertTop(ceilingTop, draft, KEEP_OVERALL);\n    }\n    globalScores.push(draft.modelScore);`,
+  'collect conservative display pools'
 );
 
 replaceOnce(
-  `const cleanedOverall = diverseTop(overallTop, DISPLAY_OVERALL, 3).map(cleanDraft);`,
-  `const selectedOverall = [];\nconst addOverall = draft => {\n  if (!draft || selectedOverall.some(existing => existing.rosterKey === draft.rosterKey)) return;\n  selectedOverall.push(draft);\n};\nfor (const draft of diverseTop(realisticTop, 4, 2)) addOverall(draft);\nfor (const draft of diverseTop(aggressiveTop, 4, 2)) addOverall(draft);\nfor (const draft of diverseTop(overallTop, DISPLAY_OVERALL, 3)) addOverall(draft);\nconst cleanedOverall = selectedOverall\n  .slice(0, DISPLAY_OVERALL)\n  .sort((a, b) => b.modelScore - a.modelScore || b.expectedStarter - a.expectedStarter)\n  .map(cleanDraft);`,
-  'mixed overall leaderboard'
+  `    plausibility: Number((draft.plausibility * 100).toFixed(1)),\n    realism: draft.realism,\n    longShotCount: draft.longShotCount,\n    fallerCount: draft.fallerCount,`,
+  `    plausibility: Number((draft.plausibility * 100).toFixed(1)),\n    weakestAvailability: Number((draft.weakestAvailability * 100).toFixed(1)),\n    realism: draft.realism,\n    conservative: draft.conservative,\n    recommended: draft.recommended,\n    veryLongShotCount: draft.veryLongShotCount,\n    longShotCount: draft.longShotCount,\n    sub15Count: draft.sub15Count,\n    sub20Count: draft.sub20Count,\n    fallerCount: draft.fallerCount,`,
+  'clean conservative metrics'
+);
+
+replaceOnce(
+  `const cleanedByStrategy = {};\nfor (const strategy of STRATEGIES) {\n  cleanedByStrategy[strategy.id] = diverseTop(aggregate[strategy.id].top, DISPLAY_PER_STRATEGY).map(cleanDraft);\n}\nconst cleanedOverall = diverseTop(overallTop, DISPLAY_OVERALL, 3).map(cleanDraft);\ncleanedOverall.forEach((draft, index) => { draft.overallRank = index + 1; });\nfor (const strategy of STRATEGIES) {\n  cleanedByStrategy[strategy.id].forEach((draft, index) => { draft.strategyRank = index + 1; });\n}`,
+  `function conservativeFirst(list) {\n  return [...list].sort((first, second) =>\n    Number(second.conservative) - Number(first.conservative)\n      || second.modelScore - first.modelScore\n      || second.expectedStarter - first.expectedStarter\n  );\n}\n\nif (practicalTop.length < DISPLAY_OVERALL) {\n  throw new Error(\`Only found \${practicalTop.length} practical drafts; need \${DISPLAY_OVERALL}.\`);\n}\n\nconst cleanedByStrategy = {};\nfor (const strategy of STRATEGIES) {\n  const candidates = conservativeFirst(aggregate[strategy.id].practicalTop);\n  if (candidates.length < DISPLAY_PER_STRATEGY) {\n    throw new Error(\`Only found \${candidates.length} practical \${strategy.label} drafts; need \${DISPLAY_PER_STRATEGY}.\`);\n  }\n  cleanedByStrategy[strategy.id] = diverseTop(candidates, DISPLAY_PER_STRATEGY).map(cleanDraft);\n}\nconst cleanedOverall = diverseTop(conservativeFirst(practicalTop), DISPLAY_OVERALL, 3).map(cleanDraft);\nconst cleanedCeiling = diverseTop(ceilingTop, 6, 2).map(cleanDraft);\ncleanedOverall.forEach((draft, index) => { draft.overallRank = index + 1; });\ncleanedCeiling.forEach((draft, index) => { draft.ceilingRank = index + 1; });\nfor (const strategy of STRATEGIES) {\n  cleanedByStrategy[strategy.id].forEach((draft, index) => { draft.strategyRank = index + 1; });\n}`,
+  'conservative-first displayed rankings'
+);
+
+replaceOnce(
+  `    simulationVersion: 'pick9-strategy-lab-v1',`,
+  `    simulationVersion: 'pick9-strategy-lab-v2-conservative',`,
+  'simulation version'
+);
+
+replaceOnce(
+  `    rankingMethod: '62% expected starter points, 23% floor, 15% ceiling, weighted bench value, then penalties for implausible falls and material reaches.',\n    simulationMethod: 'Every room samples a complete 14-team board from exact-format ADP and draft-position variance. The user drafts from slot 9 at all 16 snake picks under each strategy.',`,
+  `    rankingMethod: '62% expected starter points, 23% floor, 15% ceiling, weighted bench value, then escalating penalties for each sub-20%, sub-15%, sub-10%, and sub-5% availability pick—especially when several occur on one roster.',\n    simulationMethod: 'Every room samples a complete 14-team board from exact-format ADP and draft-position variance. The user drafts from slot 9 at all 16 snake picks under each strategy.',\n    displayPolicy: 'The default Best practical list excludes every roster containing a sub-5% pick, allows at most one sub-10% pick, and caps the number of sub-15% and sub-20% selections. Extreme outcomes remain available only under Ceiling outcomes.',`,
+  'conservative ranking explanation'
+);
+
+replaceOnce(
+  `  overall: cleanedOverall,\n  byStrategy: cleanedByStrategy`,
+  `  overall: cleanedOverall,\n  ceiling: cleanedCeiling,\n  byStrategy: cleanedByStrategy`,
+  'ceiling list payload'
 );
 
 replaceOnce(
   `    realism: draft.realism,\n    opening: draft.opening,`,
-  `    realism: draft.realism,\n    plausibility: draft.plausibility,\n    longShotCount: draft.longShotCount,\n    opening: draft.opening,`,
+  `    realism: draft.realism,\n    weakestAvailability: draft.weakestAvailability,\n    longShotCount: draft.longShotCount,\n    sub15Count: draft.sub15Count,\n    opening: draft.opening,`,
   'diagnostic summary fields'
 );
 
 fs.writeFileSync(outputPath, source);
-console.log(`Tuned ${inputPath} -> ${outputPath}: explicit strategy constraints and balanced realism categories.`);
+console.log(`Tuned ${inputPath} -> ${outputPath}: conservative-first rankings, hard practical display limits, and isolated ceiling outcomes.`);
