@@ -6,10 +6,11 @@
   <meta name="theme-color" content="#07110c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Expected-availability draft tree for pick 9 in a 14-team half-PPR fantasy football snake draft. Tap only your own picks.">
+  <meta name="description" content="Live draft assistant and ranked strategy simulations for pick 9 in a 14-team half-PPR fantasy football snake draft.">
   <title>Pick 9 Draft Tree</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="adversarial-tuning.css">
+  <link rel="stylesheet" href="simulations.css">
 </head>
 <body>
   <div id="live-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
@@ -19,6 +20,11 @@
   </div>
 
   <div class="app">
+    <nav class="app-tabs" role="tablist" aria-label="Pick 9 draft tools">
+      <button class="app-tab active" id="live-draft-tab" type="button" role="tab" data-app-tab="live" aria-selected="true" aria-controls="live-draft-panel">Live draft</button>
+      <button class="app-tab" id="simulated-drafts-tab" type="button" role="tab" data-app-tab="simulations" aria-selected="false" aria-controls="simulated-drafts-panel" tabindex="-1">Best simulated drafts <span id="simulation-count-badge">0</span></button>
+    </nav>
+
     <header class="app-header">
       <div class="topbar">
         <div class="logo" aria-hidden="true">9</div>
@@ -34,33 +40,63 @@
     </header>
 
     <main>
-      <section class="intro" id="intro" aria-labelledby="intro-title">
-        <div class="eyebrow">NO OPPONENT TRACKING</div>
-        <h1 id="intro-title">Tap only the player you draft.</h1>
-        <p>Check premium fallers first, then choose from the players expected to reach your snake-draft turn. No search and no need to enter the other 13 teams’ picks.</p>
-        <div class="three-step" aria-label="How to use this draft tree">
-          <span><b>1</b> Check fallers</span>
-          <span><b>2</b> Tap your player</span>
-          <span><b>3</b> Follow the new branch</span>
-        </div>
-        <div class="source-note" id="source-note"></div>
+      <section id="live-draft-panel" data-app-panel="live" role="tabpanel" aria-labelledby="live-draft-tab">
+        <section class="intro" id="intro" aria-labelledby="intro-title">
+          <div class="eyebrow">NO OPPONENT TRACKING</div>
+          <h1 id="intro-title">Tap only the player you draft.</h1>
+          <p>Check actionable fallers first, then choose from the players expected to reach your snake-draft turn. No search and no need to enter the other 13 teams’ picks.</p>
+          <div class="three-step" aria-label="How to use this draft tree">
+            <span><b>1</b> Check fallers</span>
+            <span><b>2</b> Tap your player</span>
+            <span><b>3</b> Follow the new branch</span>
+          </div>
+          <div class="source-note" id="source-note"></div>
+        </section>
+
+        <section class="team-panel" aria-labelledby="team-heading">
+          <button class="team-toggle" id="team-toggle" type="button" aria-expanded="false" aria-controls="team-body">
+            <span><small id="team-heading">Current team</small><strong id="construction">No picks yet</strong></span>
+            <span class="team-toggle-label" id="team-toggle-label">Show roster</span>
+          </button>
+          <div class="team-body" id="team-body" hidden></div>
+        </section>
+
+        <section class="draft-path" id="draft-path" aria-label="Your draft path"></section>
+
+        <section class="board-shell" id="board-shell" aria-live="polite" aria-busy="true">
+          <div class="board-loading">
+            <span class="spinner" aria-hidden="true"></span>
+            <div><strong>Building your Round 1 board…</strong><small>Estimating availability and roster fit</small></div>
+          </div>
+        </section>
       </section>
 
-      <section class="team-panel" aria-labelledby="team-heading">
-        <button class="team-toggle" id="team-toggle" type="button" aria-expanded="false" aria-controls="team-body">
-          <span><small id="team-heading">Current team</small><strong id="construction">No picks yet</strong></span>
-          <span class="team-toggle-label" id="team-toggle-label">Show roster</span>
-        </button>
-        <div class="team-body" id="team-body" hidden></div>
-      </section>
+      <section class="simulation-lab" id="simulated-drafts-panel" data-app-panel="simulations" role="tabpanel" aria-labelledby="simulated-drafts-tab" hidden>
+        <header class="simulation-hero">
+          <div class="eyebrow">MONTE CARLO STRATEGY LAB</div>
+          <h1>Best drafts found across thousands of complete simulations.</h1>
+          <p>Every strategy drafts from your exact snake selections—9, 20, 37, 48, and onward—against boards sampled from current 14-team half-PPR ADP and draft-position variance.</p>
+          <div class="simulation-meta" id="simulation-meta" aria-label="Simulation details"></div>
+        </header>
 
-      <section class="draft-path" id="draft-path" aria-label="Your draft path"></section>
+        <section class="simulation-section" aria-labelledby="strategy-leaderboard-heading">
+          <div class="simulation-section-heading">
+            <h2 id="strategy-leaderboard-heading">Strategy leaderboard</h2>
+            <p>Ranked by average finish when all seven approaches face the same simulated draft rooms.</p>
+          </div>
+          <div class="simulation-strategy-grid" id="simulation-strategy-grid"></div>
+        </section>
 
-      <section class="board-shell" id="board-shell" aria-live="polite" aria-busy="true">
-        <div class="board-loading">
-          <span class="spinner" aria-hidden="true"></span>
-          <div><strong>Building your Round 1 board…</strong><small>Estimating availability and roster fit</small></div>
-        </div>
+        <section class="simulation-section" aria-labelledby="ranked-drafts-heading">
+          <div class="simulation-section-heading">
+            <h2 id="ranked-drafts-heading">Best ranked drafts</h2>
+            <p>Start with the overall list, or tap a strategy to see its three strongest distinct rosters.</p>
+          </div>
+          <div class="simulation-filters" id="simulation-filters" aria-label="Filter simulated drafts"></div>
+          <div class="simulation-draft-list" id="simulation-draft-list"></div>
+        </section>
+
+        <section class="simulation-method" id="simulation-method" aria-label="Simulation methodology"></section>
       </section>
     </main>
   </div>
@@ -72,5 +108,8 @@
   <script src="model-meta.js"></script>
   <script src="app-v2.js"></script>
   <script src="lineup-semantics.js"></script>
+  <script src="simulated-drafts.js"></script>
+  <script src="simulation-render.js"></script>
+  <script src="simulation-tabs.js"></script>
 </body>
 </html>
