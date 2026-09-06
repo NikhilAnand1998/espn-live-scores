@@ -5,7 +5,7 @@
   const Availability = window.DraftAvailability;
   const pool = Array.isArray(window.players) ? window.players : [];
   const meta = window.draftMeta || {};
-  const storageKey = 'pick9-availability-tree-v5';
+  const storageKey = 'pick9-adversarial-ux-v1';
   const byKey = new Map(pool.map(player => [player.key, player]));
 
   let state = { selected: [], retired: [], more: 0 };
@@ -21,15 +21,23 @@
     (list || []).filter(key => byKey.has(key))
   );
 
-  const $ = selector => document.querySelector(selector);
-  const treeEl = $('#tree');
-  const statusEl = $('#status');
-  const constructionEl = $('#construction');
-  const teamEl = $('#team');
-  const undoEl = $('#undo');
-  const resetEl = $('#reset');
-  const sourceEl = $('#source-note');
-  const liveEl = $('#live-status');
+  const elements = {
+    roundLabel: document.querySelector('#round-label'),
+    pickLabel: document.querySelector('#pick-label'),
+    progressBar: document.querySelector('#progress-bar'),
+    rosterChips: document.querySelector('#roster-chips'),
+    undo: document.querySelector('#undo'),
+    reset: document.querySelector('#reset'),
+    intro: document.querySelector('#intro'),
+    sourceNote: document.querySelector('#source-note'),
+    construction: document.querySelector('#construction'),
+    teamToggle: document.querySelector('#team-toggle'),
+    teamToggleLabel: document.querySelector('#team-toggle-label'),
+    teamBody: document.querySelector('#team-body'),
+    draftPath: document.querySelector('#draft-path'),
+    board: document.querySelector('#board-shell'),
+    live: document.querySelector('#live-status')
+  };
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -44,12 +52,12 @@
     return state.selected.map(key => byKey.get(key)).filter(Boolean);
   }
 
-  function currentRound() {
+  function round() {
     return state.selected.length + 1;
   }
 
-  function pickLabel(round) {
-    return `${round}.${String(round % 2 ? 9 : 6).padStart(2, '0')}`;
+  function pickLabel(roundNumber) {
+    return `${roundNumber}.${String(roundNumber % 2 ? 9 : 6).padStart(2, '0')}`;
   }
 
   function blockedKeys() {
@@ -59,13 +67,11 @@
     ]);
   }
 
-  function rawRankings(round = currentRound(), currentRoster = roster()) {
-    return Engine.rankPlayers(pool, blockedKeys(), currentRoster, round);
-  }
-
-  function rankings(round = currentRound(), currentRoster = roster()) {
-    const pick = Engine.PICKS[round - 1];
-    return rawRankings(round, currentRoster).map(entry => Availability.annotate(entry, pick));
+  function rankedEntries(roundNumber = round(), currentRoster = roster()) {
+    const overallPick = Engine.PICKS[roundNumber - 1];
+    return Engine
+      .rankPlayers(pool, blockedKeys(), currentRoster, roundNumber)
+      .map(entry => Availability.annotate(entry, overallPick));
   }
 
   function save() {
@@ -80,14 +86,15 @@
   }
 
   function announce(message) {
-    if (!liveEl) return;
-    liveEl.textContent = '';
-    requestAnimationFrame(() => { liveEl.textContent = message; });
+    if (!elements.live) return;
+    elements.live.textContent = '';
+    requestAnimationFrame(() => { elements.live.textContent = message; });
   }
 
   function setBusy(busy, message = 'Updating recommendations') {
     document.body.classList.toggle('is-calculating', busy);
     document.body.setAttribute('aria-busy', String(busy));
+    elements.board?.setAttribute('aria-busy', String(busy));
     if (busy) announce(message);
   }
 
@@ -102,137 +109,150 @@
     }, 24);
   }
 
-  function scrollToBranch() {
-    const branch = $('#branch');
-    if (!branch) return;
-    branch.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    window.setTimeout(() => {
-      const headerHeight = $('header')?.offsetHeight || 0;
-      window.scrollBy({ top: -(headerHeight + 8), behavior: 'instant' });
-    }, 180);
-  }
-
-  function sourceText() {
-    const draftCount = Number(meta.draftCount || 0).toLocaleString();
-    const dateText = meta.endDate ? `through ${meta.endDate}` : (meta.generatedAt || 'current');
-    const external = [
-      meta.lineupBeatMatches ? `${meta.lineupBeatMatches} independent projections` : '',
-      meta.marketPropMatches ? `${meta.marketPropMatches} market-priced projections` : '',
-      meta.rotowireMatches ? `${meta.rotowireMatches} expert ranks` : ''
-    ].filter(Boolean).join(' · ');
-    return `${draftCount || 'Current'} exact-format mocks ${dateText} · ${external || 'multi-source player model'} · ${Engine.MODEL_LABEL || 'lookahead optimizer'} · ${Availability.version}`;
+  function compactName(player) {
+    const parts = String(player.name || '').split(' ').filter(Boolean);
+    return parts.at(-1) || player.name;
   }
 
   function compactTeamLabel(currentRoster) {
     if (!currentRoster.length) return 'No picks yet';
-    const names = currentRoster.slice(-3).map(player => {
-      const parts = player.name.split(' ');
-      return parts.at(-1) || player.name;
-    });
-    return `${names.join(' · ')}${currentRoster.length > 3 ? ` +${currentRoster.length - 3}` : ''}`;
+    const visible = currentRoster.slice(-3).map(compactName).join(' · ');
+    const earlier = Math.max(0, currentRoster.length - 3);
+    return `${visible}${earlier ? ` +${earlier}` : ''}`;
   }
 
-  function statusMarkup(round, currentRoster) {
-    const parts = [
-      `<span class="pill primary"><b>${round <= 16 ? `Round ${round}` : 'Complete'}</b></span>`
-    ];
-    if (round <= 16) {
-      parts.push(`<span class="pill">Your pick <b>${pickLabel(round)} · #${Engine.PICKS[round - 1]}</b></span>`);
-    }
-    parts.push('<span class="pill">Opponent tracking <b>not required</b></span>');
-    parts.push(`<span class="pill">Build <b>${escapeHtml(Engine.construction(currentRoster))}</b></span>`);
-    return parts.join('');
+  function sourceText() {
+    const draftCount = Number(meta.draftCount || 0).toLocaleString();
+    const dateText = meta.endDate ? `through ${meta.endDate}` : 'current snapshot';
+    const projectionText = Number(meta.lineupBeatMatches || 0) > 0
+      ? `${meta.lineupBeatMatches} independent projections`
+      : 'multi-source projections';
+    return `${draftCount || 'Current'} exact-format mocks ${dateText} · ${projectionText} · roster-aware lookahead · ${Availability.version}`;
   }
 
-  function teamMarkup(currentRoster) {
+  function renderHeader(currentRoster, currentRound) {
+    const complete = currentRound > 16;
+    elements.roundLabel.textContent = complete ? 'Draft complete' : `Round ${currentRound} of 16`;
+    elements.pickLabel.textContent = complete
+      ? `${currentRoster.length} players selected`
+      : `Pick ${pickLabel(currentRound)} · #${Engine.PICKS[currentRound - 1]}`;
+    elements.progressBar.style.width = `${Math.min(100, currentRoster.length / 16 * 100)}%`;
+    elements.undo.disabled = history.length === 0;
+
     const counts = Engine.counts(currentRoster);
-    const countMarkup = Object.keys(counts)
-      .map(pos => `<span><b>${counts[pos]}</b> ${pos}</span>`)
+    elements.rosterChips.innerHTML = ['QB', 'RB', 'WR', 'TE', 'FLEX']
+      .map(position => {
+        const value = position === 'FLEX'
+          ? Math.max(0, counts.RB + counts.WR + counts.TE - 5)
+          : counts[position];
+        const target = position === 'QB' || position === 'TE' ? 1 : position === 'RB' || position === 'WR' ? 2 : 1;
+        const stateClass = value >= target ? 'filled' : value > 0 ? 'partial' : '';
+        return `<span class="roster-chip ${stateClass}"><b>${value}</b> ${position}</span>`;
+      })
       .join('');
-    const list = currentRoster.length
-      ? currentRoster.map((player, index) => `R${index + 1}: <b>${escapeHtml(player.name)}</b> <small>${player.pos} · ADP ${Number(player.adp).toFixed(1)}</small>`).join('<br>')
-      : 'Your selections will appear here.';
-    return `<div class="counts">${countMarkup}</div><div class="roster">${list}</div>`;
   }
 
-  function nodeMarkup(player, index, fullRoster) {
-    const round = index + 1;
-    const nextPlan = Engine.plan(round + 1, fullRoster.slice(0, index + 1));
-    return `
-      <section class="node" aria-label="Round ${round}: ${escapeHtml(player.name)}">
-        <div class="node-row">
-          <div class="round"><b>R${round}</b><small>${pickLabel(round)} · #${Engine.PICKS[index]}</small></div>
-          <div class="player">
-            <b>${escapeHtml(player.name)} · ${player.pos}</b>
-            <small>${escapeHtml(player.team || '')}${player.bye ? ` · Bye ${player.bye}` : ''} · ADP ${Number(player.adp).toFixed(1)}</small>
-          </div>
-          <button class="change" data-edit="${index}" aria-label="Change Round ${round} selection">Change</button>
-        </div>
-        <div class="effect">Next plan: ${escapeHtml(nextPlan)}</div>
-      </section>`;
-  }
-
-  function valueLabel(player) {
-    const ensemble = Number(player.ensembleRank);
-    const projection = Number(player.projectionEnsemble ?? player.projection);
-    const vor = Number(player.vor);
-    if (Number.isFinite(ensemble)) {
-      return `Model rank ${ensemble.toFixed(1)}${Number.isFinite(projection) ? ` · ${projection.toFixed(0)} projected pts` : ''}`;
+  function renderTeam(currentRoster) {
+    elements.construction.textContent = compactTeamLabel(currentRoster);
+    if (!currentRoster.length) {
+      elements.teamBody.innerHTML = '<p class="empty-team">Your selections will appear here.</p>';
+      return;
     }
-    if (Number.isFinite(vor)) return `14-team VOR ${vor >= 0 ? '+' : ''}${vor.toFixed(1)}`;
-    return 'Multi-source value estimate';
+    elements.teamBody.innerHTML = `
+      <ol class="team-list">
+        ${currentRoster.map((player, index) => `
+          <li>
+            <span class="team-round">R${index + 1}</span>
+            <span><b>${escapeHtml(player.name)}</b><small>${player.pos} · ${escapeHtml(player.team || '')} · ADP ${Number(player.adp).toFixed(1)}</small></span>
+          </li>`).join('')}
+      </ol>`;
   }
 
-  function availabilityMarkup(availability) {
+  function pathNode(player, index) {
+    const roundNumber = index + 1;
+    return `
+      <li class="path-node">
+        <span class="path-dot" aria-hidden="true"></span>
+        <div class="path-card">
+          <span class="path-round">R${roundNumber}<small>${pickLabel(roundNumber)} · #${Engine.PICKS[index]}</small></span>
+          <span class="path-player"><b>${escapeHtml(player.name)}</b><small>${player.pos} · ${escapeHtml(player.team || '')}</small></span>
+          <button class="path-change" type="button" data-edit="${index}" aria-label="Change Round ${roundNumber} selection">Change</button>
+        </div>
+      </li>`;
+  }
+
+  function renderPath(currentRoster) {
+    if (!currentRoster.length) {
+      elements.draftPath.innerHTML = `
+        <div class="path-start">
+          <span class="path-dot" aria-hidden="true"></span>
+          <b>Your draft path starts here</b>
+          <small>Round 1 recommendations are below.</small>
+        </div>`;
+      return;
+    }
+
+    const hiddenCount = Math.max(0, currentRoster.length - 4);
+    const visibleStart = hiddenCount;
+    const earlierMarkup = hiddenCount
+      ? `<li class="path-earlier"><span class="path-dot" aria-hidden="true"></span><button type="button" id="show-full-path">Show ${hiddenCount} earlier pick${hiddenCount === 1 ? '' : 's'}</button></li>`
+      : '';
+
+    elements.draftPath.innerHTML = `
+      <ol class="path-list">
+        ${earlierMarkup}
+        ${currentRoster.slice(visibleStart).map((player, offset) => pathNode(player, visibleStart + offset)).join('')}
+      </ol>`;
+  }
+
+  function availabilityBadge(availability) {
     const probability = Math.round(availability.probability * 100);
     return `
-      <span class="availability ${availability.key}">
+      <span class="availability-badge ${availability.key}">
         <b>${escapeHtml(availability.text)}</b>
-        <small>${probability}% modeled chance · usual range ${availability.range.early}–${availability.range.late}</small>
+        <small>≈${probability}% · range ${availability.range.early}–${availability.range.late}</small>
       </span>`;
   }
 
-  function optimizationMetrics(entry, index, round) {
-    const details = entry.details || {};
-    const metrics = [];
-    if (details.optimized) {
-      metrics.push(`${details.rollouts} board simulations`);
-      metrics.push(`${details.horizon}-turn lookahead`);
-      if (index === 0 && details.confidence) metrics.push(details.confidence);
-      else if (Number.isFinite(details.behindTop)) metrics.push(`${details.behindTop.toFixed(1)} model pts behind #1`);
-      if (details.commonNextPositions && round < 16) metrics.push(`Next path: ${details.commonNextPositions}`);
-    }
-    return metrics;
-  }
-
-  function recommendationCard(entry, index, round, currentRoster) {
+  function modelSummary(entry, index) {
     const player = entry.player;
     const details = entry.details || {};
-    const labels = Engine.reasons(entry, currentRoster, round, index);
-    const nextPlan = round === 16 ? 'Draft complete' : Engine.plan(round + 1, [...currentRoster, player]);
+    const projection = Number(player.projectionEnsemble ?? player.projection);
+    const items = [];
+    if (Number.isFinite(projection) && projection > 0) items.push(`${projection.toFixed(0)} projected points`);
+    if (details.optimized && Number(details.rollouts) > 0) items.push(`${details.rollouts} board paths`);
+    if (index === 0 && details.confidence) items.push(details.confidence);
+    if (Number.isFinite(details.behindTop) && index > 0) items.push(`${details.behindTop.toFixed(1)} model points behind #1`);
+    return items;
+  }
+
+  function recommendationCard(entry, index, currentRound, currentRoster) {
+    const player = entry.player;
+    const reasons = Engine.reasons(entry, currentRoster, currentRound, index).slice(0, 3);
+    const nextPlan = currentRound === 16
+      ? 'Draft complete'
+      : Engine.plan(currentRound + 1, [...currentRoster, player]);
+    const summary = modelSummary(entry, index);
     const status = player.status
-      ? `<div class="player-alert ${player.excluded ? 'danger' : ''}"><b>${escapeHtml(player.status)}</b>${player.statusNote ? ` · ${escapeHtml(player.statusNote)}` : ''}</div>`
+      ? `<div class="player-alert"><b>${escapeHtml(player.status)}</b>${player.statusNote ? ` · ${escapeHtml(player.statusNote)}` : ''}</div>`
       : '';
-    const metrics = [valueLabel(player), ...optimizationMetrics(entry, index, round)];
 
     return `
-      <article class="card ${index === 0 ? 'best' : ''}" data-recommendation-card>
-        <div class="card-content">
-          <div class="card-top">
-            <div class="pos">${player.pos}</div>
-            <div class="card-name">
-              <b>${escapeHtml(player.name)}</b>
-              <small>${escapeHtml(player.team || '')}${player.bye ? ` · Bye ${player.bye}` : ''} · ADP ${Number(player.adp).toFixed(1)}</small>
-            </div>
-            <span class="rank">${index === 0 ? 'MODEL PICK' : `OPTION ${index + 1}`}</span>
-          </div>
-          <div class="availability-row">${availabilityMarkup(entry.availability)}</div>
-          <div class="metrics">${metrics.map(metric => `<span>${escapeHtml(metric)}</span>`).join('')}</div>
-          <div class="why">${labels.map(label => `<span>${escapeHtml(label)}</span>`).join('')}</div>
-          ${status}
-          <div class="next">If drafted: ${escapeHtml(nextPlan)}</div>
+      <article class="recommendation-card ${index === 0 ? 'primary' : ''}" data-recommendation-card data-player-name="${escapeHtml(player.name)}">
+        <div class="recommendation-head">
+          <span class="position-badge">${player.pos}</span>
+          <span class="player-identity">
+            <b>${escapeHtml(player.name)}</b>
+            <small>${escapeHtml(player.team || '')}${player.bye ? ` · Bye ${player.bye}` : ''} · ADP ${Number(player.adp).toFixed(1)}</small>
+          </span>
+          <span class="choice-rank">${index === 0 ? 'BEST EXPECTED' : `#${index + 1}`}</span>
         </div>
-        <button class="draft-action" data-pick="${escapeHtml(player.key)}">Draft ${escapeHtml(player.name)}</button>
+        <div class="recommendation-status">${availabilityBadge(entry.availability)}</div>
+        ${summary.length ? `<div class="model-summary">${summary.map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
+        <div class="reason-list">${reasons.map(reason => `<span>${escapeHtml(reason)}</span>`).join('')}</div>
+        ${status}
+        <p class="next-plan"><b>Next branch:</b> ${escapeHtml(nextPlan)}</p>
+        <button class="draft-player" type="button" data-pick="${escapeHtml(player.key)}">Draft ${escapeHtml(player.name)}</button>
       </article>`;
   }
 
@@ -240,22 +260,25 @@
     const player = entry.player;
     const probability = Math.round(entry.availability.probability * 100);
     return `
-      <button class="faller" data-pick="${escapeHtml(player.key)}">
-        <span class="faller-pos">${player.pos}</span>
-        <span class="faller-name"><b>${escapeHtml(player.name)}</b><small>${probability}% chance at this pick</small></span>
+      <button class="faller-button" type="button" data-pick="${escapeHtml(player.key)}" data-player-name="${escapeHtml(player.name)}">
+        <span class="position-badge">${player.pos}</span>
+        <span><b>${escapeHtml(player.name)}</b><small>≈${probability}% chance at #${Engine.PICKS[round() - 1]}</small></span>
         <strong>Draft if there</strong>
       </button>`;
   }
 
-  function splitBoard(entries, round) {
-    if (round >= 15) return { fallers: [], expected: entries };
-    const pick = Engine.PICKS[round - 1];
+  function splitBoard(entries, currentRound) {
+    if (currentRound >= 15) return { fallers: [], expected: entries };
+    const overallPick = Engine.PICKS[currentRound - 1];
     const fallers = entries.filter(entry => {
-      const modelRank = Number(entry.player.ensembleRank ?? entry.player.valueRank ?? entry.player.adp);
-      return entry.availability.probability < 0.48 && modelRank <= pick - 2;
+      const player = entry.player;
+      const modelRank = Number(player.ensembleRank ?? player.valueRank ?? player.adp);
+      return entry.availability.probability < 0.48 && modelRank <= overallPick - 2;
     }).slice(0, 4);
     const fallerKeys = new Set(fallers.map(entry => entry.player.key));
-    let expected = entries.filter(entry => !fallerKeys.has(entry.player.key) && entry.availability.probability >= 0.22);
+    let expected = entries.filter(entry =>
+      !fallerKeys.has(entry.player.key) && entry.availability.probability >= 0.22
+    );
     if (expected.length < 6) {
       const used = new Set([...fallerKeys, ...expected.map(entry => entry.player.key)]);
       expected = [...expected, ...entries.filter(entry => !used.has(entry.player.key))];
@@ -263,128 +286,142 @@
     return { fallers, expected };
   }
 
-  function branchMarkup(round, currentRoster) {
-    const all = rankings(round, currentRoster);
-    const { fallers, expected } = splitBoard(all, round);
-    const baseCount = round === 1 ? 7 : 6;
-    const shown = expected.slice(0, baseCount + Number(state.more || 0));
-
-    if (!shown.length && !fallers.length) {
-      return `
-        <section class="branch" id="branch">
-          <div class="branch-title">
-            <small>ROUND ${round} · ${pickLabel(round)} · OVERALL ${Engine.PICKS[round - 1]}</small>
-            <h2>No recommendations remain</h2>
-            <p>Undo or change an earlier selection to rebuild this branch.</p>
-          </div>
+  function renderBoard(currentRoster, currentRound) {
+    if (currentRound > 16) {
+      elements.board.innerHTML = `
+        <section class="draft-complete">
+          <div class="complete-icon" aria-hidden="true">✓</div>
+          <h2>Draft complete</h2>
+          <p>Your 16-player roster is saved on this device.</p>
         </section>`;
+      elements.board.setAttribute('aria-busy', 'false');
+      return;
     }
 
-    const top = shown[0]?.details || fallers[0]?.details || {};
-    const modelDescription = top.optimized
-      ? `${top.rollouts} board simulations per candidate with ${top.horizon} future snake turns evaluated.`
-      : 'Ranked by projected value, roster fit, and expected availability.';
+    const entries = rankedEntries(currentRound, currentRoster);
+    const { fallers, expected } = splitBoard(entries, currentRound);
+    const baseCount = currentRound === 1 ? 7 : 6;
+    const shown = expected.slice(0, baseCount + Number(state.more || 0));
+    const firstDetails = shown[0]?.details || fallers[0]?.details || {};
+    const simulationText = firstDetails.optimized && firstDetails.rollouts
+      ? `${firstDetails.rollouts} future-board paths checked per candidate`
+      : 'Projected value, roster fit, and availability combined';
 
-    return `
-      <section class="branch" id="branch" aria-labelledby="round-heading">
-        <div class="branch-title">
-          <small>YOU ARE ON THE CLOCK · ROUND ${round} · ${pickLabel(round)} · #${Engine.PICKS[round - 1]}</small>
-          <h2 id="round-heading">Tap the best player who is actually available</h2>
-          <p>${escapeHtml(modelDescription)} You do not need to enter the other 13 teams’ selections.</p>
+    elements.board.innerHTML = `
+      <section class="on-clock" aria-labelledby="board-title">
+        <div class="on-clock-copy">
+          <span class="eyebrow">YOU ARE ON THE CLOCK</span>
+          <h2 id="board-title">Round ${currentRound} · Pick ${pickLabel(currentRound)} · #${Engine.PICKS[currentRound - 1]}</h2>
+          <p>${escapeHtml(Engine.plan(currentRound, currentRoster))}. ${escapeHtml(simulationText)}.</p>
         </div>
-        ${fallers.length ? `
-          <section class="faller-zone" aria-labelledby="faller-heading">
-            <div class="section-heading">
-              <div><span class="eyebrow">CHECK FIRST</span><h3 id="faller-heading">Premium fallers</h3></div>
-              <p>Only tap one of these when the player is still available in your real draft.</p>
-            </div>
-            <div class="faller-list">${fallers.map(fallerButton).join('')}</div>
-          </section>` : ''}
-        <section class="expected-zone" aria-labelledby="expected-heading">
-          <div class="section-heading">
-            <div><span class="eyebrow">MOST USEFUL ON DRAFT NIGHT</span><h3 id="expected-heading">Expected choices at your pick</h3></div>
-            <p>Ordered by projected team outcome, then adjusted for the chance each player reaches you.</p>
+        <div class="no-tracking-note"><b>Do not enter opponent picks.</b><span>Simply ignore anyone already drafted and tap your actual selection.</span></div>
+      </section>
+
+      ${fallers.length ? `
+        <section class="board-section faller-section" aria-labelledby="faller-title">
+          <div class="section-title">
+            <div><span class="eyebrow">CHECK FIRST</span><h3 id="faller-title">Premium fallers</h3></div>
+            <p>These are unlikely to reach you, but they become priority picks when they do.</p>
           </div>
-          <div class="cards">${shown.map((entry, index) => recommendationCard(entry, index, round, currentRoster)).join('')}</div>
-        </section>
-        <div class="tools">
-          ${shown.length < expected.length ? '<button class="tool" id="more">Show 4 more possibilities</button>' : ''}
+          <div class="faller-grid">${fallers.map(fallerButton).join('')}</div>
+        </section>` : ''}
+
+      <section class="board-section expected-section" aria-labelledby="expected-title">
+        <div class="section-title">
+          <div><span class="eyebrow">EXPECTED AT YOUR TURN</span><h3 id="expected-title">Best choices for your roster</h3></div>
+          <p>Tap the highest-ranked player below who is still available in your real draft room.</p>
         </div>
+        <div class="recommendation-grid">${shown.map((entry, index) => recommendationCard(entry, index, currentRound, currentRoster)).join('')}</div>
+        ${shown.length < expected.length ? '<button class="show-more" id="show-more" type="button">Show 4 more possibilities</button>' : ''}
       </section>`;
+    elements.board.setAttribute('aria-busy', 'false');
   }
 
   function render({ scroll = false } = {}) {
     const currentRoster = roster();
-    const round = currentRound();
-    let html = '<div class="root">Your draft path<small>Tap only your own selection. Each pick rebuilds the recommendations below it.</small></div>';
-
-    currentRoster.forEach((player, index) => {
-      html += nodeMarkup(player, index, currentRoster);
-    });
-
-    html += round <= 16
-      ? branchMarkup(round, currentRoster)
-      : '<section class="done"><h2>Draft complete</h2><p>Your 16-round roster is saved on this device.</p></section>';
-
-    treeEl.innerHTML = html;
-    statusEl.innerHTML = statusMarkup(round, currentRoster);
-    constructionEl.textContent = compactTeamLabel(currentRoster);
-    teamEl.innerHTML = teamMarkup(currentRoster);
-    sourceEl.textContent = sourceText();
-    undoEl.disabled = history.length === 0;
+    const currentRound = round();
+    renderHeader(currentRoster, currentRound);
+    renderTeam(currentRoster);
+    renderPath(currentRoster);
+    renderBoard(currentRoster, currentRound);
+    elements.sourceNote.textContent = sourceText();
     document.body.classList.toggle('draft-started', currentRoster.length > 0);
-    bind();
-    if (scroll) scrollToBranch();
+    bindDynamicControls();
+    if (scroll) scrollBoardIntoView();
+  }
+
+  function scrollBoardIntoView() {
+    window.setTimeout(() => {
+      const board = elements.board;
+      const headerHeight = document.querySelector('.app-header')?.offsetHeight || 0;
+      const top = board.getBoundingClientRect().top + window.scrollY - headerHeight - 10;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }, 40);
   }
 
   function selectPlayer(playerKey) {
-    const round = currentRound();
-    const current = rankings(round);
-    const index = current.findIndex(entry => entry.player.key === playerKey);
-    if (index < 0) return;
     const player = byKey.get(playerKey);
-
+    if (!player) return;
     runBusy(() => {
+      const currentRound = round();
+      const entries = rankedEntries(currentRound);
+      const index = entries.findIndex(entry => entry.player.key === playerKey);
+      if (index < 0) return;
       snapshot();
-      state.retired[round - 1] = current.slice(0, index).map(entry => entry.player.key);
+      state.retired[currentRound - 1] = entries.slice(0, index).map(entry => entry.player.key);
       state.selected.push(playerKey);
       state.more = 0;
       save();
       render({ scroll: true });
-      announce(`${player.name} drafted. Round ${round + 1} recommendations are ready.`);
-    }, `Drafting ${player.name} and recalculating the tree`);
+      announce(`${player.name} drafted. Round ${currentRound + 1} recommendations are ready.`);
+    }, `Drafting ${player.name} and rebuilding the tree`);
   }
 
-  function bind() {
+  function reopenRound(index) {
+    runBusy(() => {
+      snapshot();
+      state.selected = state.selected.slice(0, index);
+      state.retired = state.retired.slice(0, index);
+      state.more = 0;
+      save();
+      render({ scroll: true });
+      announce(`Round ${index + 1} reopened.`);
+    }, `Reopening Round ${index + 1}`);
+  }
+
+  function bindDynamicControls() {
     document.querySelectorAll('[data-pick]').forEach(button => {
       button.addEventListener('click', () => selectPlayer(button.dataset.pick));
     });
 
     document.querySelectorAll('[data-edit]').forEach(button => {
-      button.addEventListener('click', () => {
-        const index = Number(button.dataset.edit);
-        runBusy(() => {
-          snapshot();
-          state.selected = state.selected.slice(0, index);
-          state.retired = state.retired.slice(0, index);
-          state.more = 0;
-          save();
-          render({ scroll: true });
-          announce(`Round ${index + 1} reopened.`);
-        }, `Reopening Round ${index + 1}`);
-      });
+      button.addEventListener('click', () => reopenRound(Number(button.dataset.edit)));
     });
 
-    $('#more')?.addEventListener('click', () => {
+    document.querySelector('#show-more')?.addEventListener('click', () => {
       snapshot();
       state.more += 4;
       save();
       render();
       announce('Four more draft possibilities shown.');
     });
+
+    document.querySelector('#show-full-path')?.addEventListener('click', event => {
+      const currentRoster = roster();
+      elements.draftPath.innerHTML = `<ol class="path-list">${currentRoster.map(pathNode).join('')}</ol>`;
+      bindDynamicControls();
+      event.currentTarget?.remove();
+    });
   }
 
-  undoEl.addEventListener('click', () => {
+  elements.teamToggle.addEventListener('click', () => {
+    const expanded = elements.teamToggle.getAttribute('aria-expanded') === 'true';
+    elements.teamToggle.setAttribute('aria-expanded', String(!expanded));
+    elements.teamBody.hidden = expanded;
+    elements.teamToggleLabel.textContent = expanded ? 'Show roster' : 'Hide roster';
+  });
+
+  elements.undo.addEventListener('click', () => {
     if (!history.length) return;
     runBusy(() => {
       state = JSON.parse(history.pop());
@@ -394,7 +431,7 @@
     }, 'Undoing the last action');
   });
 
-  resetEl.addEventListener('click', () => {
+  elements.reset.addEventListener('click', () => {
     if (!window.confirm('Reset the full draft tree?')) return;
     runBusy(() => {
       snapshot();
@@ -406,9 +443,16 @@
   });
 
   if (!pool.length || !Engine || !Availability) {
-    treeEl.innerHTML = '<section class="done"><h2>Data failed to load</h2><p>Refresh the page. If this continues, the current deployment is incomplete.</p></section>';
-    return;
+    elements.board.innerHTML = `
+      <section class="draft-complete error-state">
+        <h2>The board could not load</h2>
+        <p>Refresh the page. The current deployment may be incomplete.</p>
+      </section>`;
+    elements.board.setAttribute('aria-busy', 'false');
+  } else {
+    window.setTimeout(() => {
+      render();
+      setBusy(false);
+    }, 0);
   }
-
-  render();
 })();
