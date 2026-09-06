@@ -1,0 +1,65 @@
+name: Verify Deployed Draft UI
+
+on:
+  push:
+    branches: [gh-pages]
+    paths:
+      - index.html
+      - style.css
+      - app-v2.js
+      - availability.js
+      - engine.js
+      - engine-patch.js
+      - data.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-playwright-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.0-noble
+    steps:
+      - name: Check out audit suite from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source
+
+      - name: Install matching Playwright package
+        working-directory: source
+        run: |
+          npm init -y >/dev/null
+          npm install --save-exact playwright@1.55.0 >/dev/null
+
+      - name: Wait for GitHub Pages to serve the new UI
+        run: |
+          for attempt in $(seq 1 60); do
+            html="$(curl -fsS -H 'Cache-Control: no-cache' 'https://nikhilanand1998.github.io/espn-live-scores/?deploy-check='$(date +%s) || true)"
+            if echo "$html" | grep -q 'app-v2.js' && echo "$html" | grep -q 'availability.js'; then
+              echo "New public UI is live."
+              exit 0
+            fi
+            echo "Waiting for GitHub Pages, attempt $attempt/60..."
+            sleep 5
+          done
+          echo "GitHub Pages did not publish the expected UI in time."
+          exit 1
+
+      - name: Run the adversarial suite against the public site
+        working-directory: source
+        env:
+          SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
+          REPORT_PATH: deployed-ui-adversarial-report.json
+        run: node .github/scripts/ui-adversarial-playwright-v2.mjs
+
+      - name: Upload public-site report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pick9-public-ui-adversarial-report
+          path: source/deployed-ui-adversarial-report.json
+          if-no-files-found: error
