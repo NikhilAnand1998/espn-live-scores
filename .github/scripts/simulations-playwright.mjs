@@ -1,0 +1,88 @@
+import { chromium } from 'playwright';
+
+const siteUrl = process.env.SITE_URL || 'http://127.0.0.1:4173/';
+const expectedPicks = [9, 20, 37, 48, 65, 76, 93, 104, 121, 132, 149, 160, 177, 188, 205, 216];
+const checks = [];
+
+function assert(value, label, details = '') {
+  if (!value) throw new Error(`FAILED: ${label}${details ? ` — ${details}` : ''}`);
+  checks.push(label);
+  console.log(`PASS: ${label}`);
+}
+
+function validateDraft(draft) {
+  assert(Array.isArray(draft.picks) && draft.picks.length === 16, `${draft.id} contains 16 selections`);
+  assert(draft.picks.every((pick, index) => pick.overall === expectedPicks[index] && pick.round === index + 1), `${draft.id} uses exact pick-9 snake slots`);
+  const keys = draft.picks.map(pick => `${pick.name}|${pick.pos}`);
+  assert(new Set(keys).size === keys.length, `${draft.id} contains no duplicate players`);
+  const counts = draft.picks.reduce((result, pick) => {
+    result[pick.pos] = (result[pick.pos] || 0) + 1;
+    return result;
+  }, {});
+  assert((counts.QB || 0) >= 1 && (counts.RB || 0) >= 2 && (counts.WR || 0) >= 2 && (counts.TE || 0) >= 1, `${draft.id} fills QB, 2 RB, 2 WR, and TE`);
+  assert((counts.DEF || 0) === 1 && (counts.K || 0) === 1, `${draft.id} contains exactly one defense and kicker`);
+  assert(draft.picks[14].pos === 'DEF' && draft.picks[15].pos === 'K', `${draft.id} reserves Rounds 15 and 16 for DEF and K`);
+  assert(Number.isFinite(draft.modelScore) && Number.isFinite(draft.weeklyExpected) && Number.isFinite(draft.plausibility), `${draft.id} has finite ranking metrics`);
+}
+
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+try {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+
+  const response = await page.goto(`${siteUrl}?simulation-audit=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  assert(Boolean(response?.ok()), 'simulation site loads successfully');
+  await page.waitForSelector('[data-pick]', { timeout: 60000 });
+  await page.waitForFunction(() => Boolean(window.simulatedDrafts), null, { timeout: 60000 });
+
+  const payload = await page.evaluate(() => window.simulatedDrafts);
+  assert(payload.meta.totalCompletedDrafts >= 20000, 'at least 20,000 complete strategy drafts were simulated');
+  assert(payload.meta.rooms >= 2500, 'simulation covers at least 2,500 independent draft rooms');
+  assert(payload.meta.strategies >= 7, 'seven distinct strategies are represented');
+  assert(payload.strategySummary.length === payload.meta.strategies, 'strategy leaderboard contains every strategy');
+  assert(payload.overall.length >= 10, 'overall rankings contain at least ten distinct drafts');
+  assert(Object.values(payload.byStrategy).every(list => list.length >= 3), 'every strategy has three ranked draft examples');
+  assert(payload.overall.every((draft, index, list) => index === 0 || list[index - 1].modelScore >= draft.modelScore), 'overall drafts are ordered by descending model score');
+  assert(payload.overall.some(draft => draft.realism !== 'Dream outcome'), 'ranked list includes at least one realistic or aggressive path');
+
+  payload.overall.forEach(validateDraft);
+  Object.values(payload.byStrategy).flat().forEach(validateDraft);
+
+  const byStrategy = payload.byStrategy;
+  assert(byStrategy.hero_rb.every(draft => draft.picks[0].pos === 'RB'), 'Hero RB examples begin with a running back');
+  assert(byStrategy.robust_rb.every(draft => draft.picks.slice(0, 3).filter(pick => pick.pos === 'RB').length >= 2), 'Robust RB examples take two backs in the first three rounds');
+  assert(byStrategy.wr_avalanche.every(draft => draft.picks.slice(0, 4).filter(pick => pick.pos === 'WR').length >= 2), 'WR avalanche examples take at least two receivers in the first four rounds');
+  assert(byStrategy.elite_te.every(draft => draft.picks.find(pick => pick.pos === 'TE')?.round <= 6), 'Elite TE examples secure tight end by Round 6');
+  assert(byStrategy.elite_qb.every(draft => draft.picks.find(pick => pick.pos === 'QB')?.round <= 6), 'Elite QB examples secure quarterback by Round 6');
+  assert(byStrategy.late_qb.every(draft => draft.picks.find(pick => pick.pos === 'QB')?.round >= 8), 'Late QB examples wait until Round 8 or later');
+
+  assert(await page.locator('[role="tab"]').count() === 2, 'site exposes Live draft and Best simulated drafts tabs');
+  await page.locator('[data-app-tab="simulations"]').click();
+  await page.waitForSelector('.simulation-draft-card');
+  assert(await page.locator('[data-app-panel="simulations"]').isVisible(), 'simulation panel is visible after tab selection');
+  assert(!(await page.locator('[data-app-panel="live"]').isVisible()), 'live panel is hidden while simulation tab is active');
+  assert(await page.locator('.simulation-strategy-card').count() === payload.meta.strategies, 'strategy leaderboard renders all strategies');
+  assert(await page.locator('.simulation-draft-card').count() === payload.overall.length, 'overall ranked draft cards render');
+  assert(await page.locator('.simulation-pick').count() >= 16, 'expanded top draft renders all selections');
+
+  await page.locator('[data-simulation-filter="hero_rb"]').click();
+  await page.waitForTimeout(250);
+  assert(await page.locator('.simulation-draft-card').count() === payload.byStrategy.hero_rb.length, 'strategy filter renders only Hero RB drafts');
+  assert((await page.locator('.simulation-draft-title small').first().innerText()).includes('Hero RB'), 'filtered cards match selected strategy');
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert(overflow <= 1, 'simulation tab has no horizontal overflow on a 390px phone', `overflow=${overflow}`);
+
+  await page.locator('[data-app-tab="live"]').click();
+  assert(await page.locator('[data-app-panel="live"]').isVisible(), 'tab control returns to the live draft assistant');
+  assert(await page.locator('[data-player-name="Chase Brown"]').count() >= 1, 'live pick-9 board still surfaces Chase Brown');
+  assert(errors.length === 0, 'simulation tab produces no browser or console errors', errors.join(' | '));
+
+  console.log(JSON.stringify({ passed: true, totalChecks: checks.length, checks }, null, 2));
+  await context.close();
+} finally {
+  await browser.close();
+}
