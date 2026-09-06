@@ -1,0 +1,16 @@
+@media (max-width:480px){
+  .intro{padding:12px 12px 11px}
+  .intro h1{font-size:23px;margin:5px 0 5px;line-height:1.02}
+  .intro p{font-size:11px;line-height:1.4}
+  .three-step{margin-top:9px;gap:5px}
+  .three-step span{min-height:32px;padding:4px 7px;font-size:9px;gap:5px}
+  .three-step b{width:18px;height:18px;font-size:9px}
+  .source-note{display:none}
+  .icon-button{min-width:44px;min-height:44px}
+}
+
+@media (max-width:340px){
+  .intro h1{font-size:21px}
+  .intro p{font-size:10.5px}
+  .three-step span{padding-left:6px;padding-right:6px}
+}
