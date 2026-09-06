@@ -6,6 +6,7 @@
   .three-step span{min-height:32px;padding:4px 7px;font-size:9px;gap:5px}
   .three-step b{width:18px;height:18px;font-size:9px}
   .source-note{display:none}
+  .icon-button{min-width:44px;min-height:44px}
 }
 
 @media (max-width:340px){
