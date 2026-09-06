@@ -11,7 +11,7 @@ on:
       - .github/scripts/enrich-draft-tree-lineupbeat.mjs
       - .github/scripts/enrich-draft-tree-market-props.mjs
       - .github/scripts/finalize-draft-tree-model.mjs
-      - .github/scripts/ui-adversarial-playwright.mjs
+      - .github/scripts/ui-adversarial-playwright-v2.mjs
       - .github/workflows/deploy-audited-draft-tree.yml
   workflow_dispatch:
 
@@ -82,7 +82,7 @@ jobs:
           node --check site/availability.js
           node --check site/model-meta.js
           node --check site/app-v2.js
-          node --check source/.github/scripts/ui-adversarial-playwright.mjs
+          node --check source/.github/scripts/ui-adversarial-playwright-v2.mjs
 
       - name: Start local preview
         working-directory: source
@@ -103,7 +103,7 @@ jobs:
         env:
           SITE_URL: http://127.0.0.1:4173/
           REPORT_PATH: ../site/ui-adversarial-report.json
-        run: node .github/scripts/ui-adversarial-playwright.mjs
+        run: node .github/scripts/ui-adversarial-playwright-v2.mjs
 
       - name: Upload adversarial review report
         if: always()
