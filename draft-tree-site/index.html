@@ -4,45 +4,58 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#07110c">
-  <meta name="description" content="Monte Carlo optimized pick 9 draft tree with automatic opponent-pick advancement for a 14-team half-PPR snake draft.">
-  <title>Pick 9 Draft Optimizer</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Expected-availability draft board for pick 9 in a 14-team half-PPR fantasy football snake draft.">
+  <title>Pick 9 Draft Board</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="auto-board.css">
 </head>
 <body>
   <div class="app">
-    <header>
-      <div class="top">
-        <div class="logo">9</div>
-        <div class="title">
-          <b>Pick 9 Draft Optimizer</b>
-          <small>14-team · half-PPR · snake</small>
+    <header class="app-header">
+      <div class="topbar">
+        <div class="logo" aria-hidden="true">9</div>
+        <div class="pick-context">
+          <span id="round-label">Round 1 of 16</span>
+          <strong id="pick-label">Pick 1.09 · #9</strong>
         </div>
-        <button class="control" id="undo" aria-label="Undo last action">↶</button>
-        <button class="control reset" id="reset">Reset</button>
+        <button class="icon-button" id="undo" type="button" aria-label="Undo last action" disabled>↶</button>
+        <button class="icon-button reset" id="reset" type="button" aria-label="Reset draft">Reset</button>
       </div>
-      <div class="status" id="status"></div>
+      <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+      <div class="roster-chips" id="roster-chips" aria-label="Roster position counts"></div>
     </header>
 
-    <section class="intro">
-      <div class="audit-badge">AUTO-ADVANCING LOOKAHEAD MODEL</div>
-      <h1>Tap only your pick.</h1>
-      <p>After you draft, the app estimates every opponent selection before your next turn. You only correct exceptions: tap <b>Still available</b> for an unexpected faller or <b>Taken</b> when a displayed recommendation is already gone.</p>
-      <div class="source-note" id="source-note"></div>
-    </section>
+    <main>
+      <section class="intro" id="intro">
+        <div class="eyebrow">NO OPPONENT TRACKING</div>
+        <h1>Tap only the player you draft.</h1>
+        <p>The board estimates who should reach each of your snake-draft turns. It ranks the expected range for your roster and separately flags valuable fallers to check.</p>
+        <div class="source-note" id="source-note"></div>
+      </section>
 
-    <details class="team" open>
-      <summary>Current team · <span id="construction">Empty</span></summary>
-      <div id="team"></div>
-    </details>
+      <section class="team-panel" aria-labelledby="team-heading">
+        <button class="team-toggle" id="team-toggle" type="button" aria-expanded="false" aria-controls="team-body">
+          <span><small id="team-heading">Current team</small><strong id="construction">Empty</strong></span>
+          <span class="team-toggle-label" id="team-toggle-label">Show roster</span>
+        </button>
+        <div class="team-body" id="team-body" hidden></div>
+      </section>
 
-    <main class="tree" id="tree"></main>
+      <section class="draft-path" id="draft-path" aria-label="Your draft path"></section>
+
+      <section class="board-shell" id="board-shell" aria-live="polite" aria-busy="true">
+        <div class="board-loading">
+          <span class="spinner" aria-hidden="true"></span>
+          <div><strong>Building your Round 1 board…</strong><small>Estimating availability and roster fit</small></div>
+        </div>
+      </section>
+    </main>
   </div>
 
   <script src="data.js"></script>
   <script src="engine.js"></script>
   <script src="engine-patch.js"></script>
-  <script src="auto-board.js"></script>
   <script src="model-meta.js"></script>
   <script src="app.js"></script>
 </body>
