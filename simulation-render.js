@@ -25,10 +25,14 @@
     const probability = Number(pick.availability);
     const probabilityClass = probability < 10 ? 'longshot' : probability < 30 ? 'faller' : '';
     const lineupClass = String(pick.role).startsWith('BN') ? 'bench' : 'starter';
+    const specialist = pick.pos === 'DEF' || pick.pos === 'K';
+    const market = specialist
+      ? '<b>Final-round slot</b><small>Reserved by roster rule</small>'
+      : `<b>ADP ${pick.adp === null ? '—' : num(pick.adp, 1)}</b><small class="${probabilityClass}">${num(probability, 1)}% available</small>`;
     return `<li class="simulation-pick ${lineupClass}">
       <span class="simulation-pick-round">R${pick.round}<small>#${pick.overall}</small></span>
       <span class="simulation-pick-player"><b>${esc(pick.name)}</b><small>${esc(pick.pos)} · ${esc(pick.team || 'FA')} · ${esc(pick.role)}</small></span>
-      <span class="simulation-pick-market"><b>ADP ${pick.adp === null ? '—' : num(pick.adp, 1)}</b><small class="${probabilityClass}">${num(probability, 1)}% available</small></span>
+      <span class="simulation-pick-market">${market}</span>
     </li>`;
   }
 
@@ -52,7 +56,7 @@
         <span><b>${num(draft.modelScore, 1)}</b><small>Practical score</small></span>
         <span><b>${num(draft.percentile, 1)}%</b><small>Conservative percentile</small></span>
         <span><b>${num(draft.weeklyExpected, 1)}</b><small>Expected pts/week</small></span>
-        <span><b>${num(draft.weakestAvailability, 1)}%</b><small>Lowest pick chance</small></span>
+        <span><b>${num(draft.weakestAvailability, 1)}%</b><small>Lowest skill-pick chance</small></span>
       </div>
       <div class="simulation-range" aria-label="Projected weekly starter range">
         <span><small>Floor</small><b>${num(draft.weeklyFloor, 1)}</b></span>
@@ -61,8 +65,8 @@
       </div>
       <div class="simulation-headline-picks" aria-label="First six selections">${firstSix}</div>
       <div class="simulation-draft-flags">
-        <span>${draft.sub15Count} pick${draft.sub15Count === 1 ? '' : 's'} below 15%</span>
-        <span>${draft.longShotCount} pick${draft.longShotCount === 1 ? '' : 's'} below 10%</span>
+        <span>${draft.sub15Count} skill pick${draft.sub15Count === 1 ? '' : 's'} below 15%</span>
+        <span>${draft.longShotCount} skill pick${draft.longShotCount === 1 ? '' : 's'} below 10%</span>
         <span>${draft.reachCount} material reach${draft.reachCount === 1 ? '' : 'es'}</span>
       </div>
       <details class="simulation-picks-details" ${index === 0 ? 'open' : ''}>
@@ -128,7 +132,7 @@
   const props = Number(m.marketPropPlayers || 0) > 0
     ? `${num(m.marketPropPlayers)} players had market-prop inputs in this run.`
     : 'No player-prop market feed was available in this run, so rankings use the current projection ensemble, floors, ceilings, consensus ranks, and exact-format ADP.';
-  method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(m.displayPolicy || '')}</p><p>${esc(props)}</p><small>Each percentage is that player’s estimated availability at one specific pick. It is not a literal joint probability for the entire 16-player roster. The default list now prevents several low-probability falls from being stacked into the same recommended team; those extreme rooms are shown separately under Ceiling outcomes.</small>`;
+  method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(m.displayPolicy || '')}</p><p>${esc(props)}</p><small>Each percentage is that skill player’s estimated availability at one specific pick. It is not a literal joint probability for the entire roster. The default list prevents several low-probability falls from being stacked into the same recommended team; extreme rooms are shown separately under Ceiling outcomes. DEF and K percentages are omitted because those positions are deliberately reserved for the final two rounds.</small>`;
 
   filters.addEventListener('click', event => {
     const target = event.target.closest('[data-simulation-filter]');
