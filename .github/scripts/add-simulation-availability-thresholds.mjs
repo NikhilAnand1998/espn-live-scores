@@ -21,21 +21,63 @@ replaceOnce(
 );
 
 replaceOnce(
+  'function chooseUser(strategy, available, roster, round, random, riskTolerance) {',
+  `function meetsAvailabilityFloor(player, round, minimumAvailability) {\n  if (minimumAvailability <= 0 || round >= 15) return true;\n  return Availability.probabilityAtPick(player, PICKS[round - 1]) * 100 + 1e-9 >= minimumAvailability;\n}\n\nfunction chooseUser(strategy, available, roster, round, random, riskTolerance, minimumAvailability = 0) {`,
+  'availability helper and chooseUser parameter'
+);
+
+replaceOnce(
+  `    const adp = finite(player.adp, 250);\n    const sd = Math.max(1.5, finite(player.sd, 8));`,
+  `    const adp = finite(player.adp, 250);\n    if (!meetsAvailabilityFloor(player, round, minimumAvailability)) continue;\n    const sd = Math.max(1.5, finite(player.sd, 8));`,
+  'candidate availability gate'
+);
+
+replaceOnce(
+  'function simulateStrategy(strategy, roomIndex, scenario, board) {',
+  'function simulateStrategy(strategy, roomIndex, scenario, board, minimumAvailability = 0) {',
+  'simulateStrategy parameter'
+);
+
+replaceOnce(
+  '  const random = mulberry32(hashString(`${MASTER_SEED}|decision|${roomIndex}|${strategy.id}`));',
+  '  const random = mulberry32(hashString(`${MASTER_SEED}|decision|${roomIndex}|${strategy.id}|floor-${minimumAvailability}`));',
+  'threshold-specific decision seed'
+);
+
+replaceOnce(
+  '      let selected = chooseUser(strategy, available, roster, round, random, riskTolerance);',
+  '      let selected = chooseUser(strategy, available, roster, round, random, riskTolerance, minimumAvailability);',
+  'pass threshold into user policy'
+);
+
+replaceOnce(
+  `        selected = players\n          .filter(player => available.has(player.key) && isEligible(player, fallbackCounts, round))\n          .sort((a, b) => metrics.get(a.key).rank - metrics.get(b.key).rank)[0] || null;`,
+  `        let fallbackPool = players\n          .filter(player => available.has(player.key)\n            && isEligible(player, fallbackCounts, round)\n            && meetsAvailabilityFloor(player, round, minimumAvailability));\n        if (!fallbackPool.length) {\n          fallbackPool = players\n            .filter(player => available.has(player.key) && isEligible(player, fallbackCounts, round));\n        }\n        selected = fallbackPool\n          .sort((a, b) => metrics.get(a.key).rank - metrics.get(b.key).rank)[0] || null;`,
+  'threshold-aware fallback pool'
+);
+
+replaceOnce(
   'const globalScores = [];\nconst startedAt = Date.now();',
-  `const globalScores = [];\nconst thresholdPools = Object.fromEntries(AVAILABILITY_THRESHOLDS.map(threshold => [String(threshold), {\n  threshold,\n  eligibleDrafts: 0,\n  eligibleByStrategy: Object.fromEntries(STRATEGIES.map(strategy => [strategy.id, 0])),\n  overall: [],\n  byStrategy: Object.fromEntries(STRATEGIES.map(strategy => [strategy.id, []]))\n}]));\nconst startedAt = Date.now();`,
+  `const globalScores = [];\nconst thresholdPools = Object.fromEntries(AVAILABILITY_THRESHOLDS.map(threshold => [String(threshold), {\n  threshold,\n  attemptedDrafts: 0,\n  eligibleDrafts: 0,\n  eligibleByStrategy: Object.fromEntries(STRATEGIES.map(strategy => [strategy.id, 0])),\n  overall: [],\n  byStrategy: Object.fromEntries(STRATEGIES.map(strategy => [strategy.id, []]))\n}]));\nconst startedAt = Date.now();`,
   'threshold pools'
 );
 
 replaceOnce(
   '    globalScores.push(draft.modelScore);\n    roomResults.push(draft);',
-  `    globalScores.push(draft.modelScore);\n    for (const threshold of AVAILABILITY_THRESHOLDS) {\n      if (draft.weakestAvailability * 100 + 1e-9 < threshold) continue;\n      const thresholdPool = thresholdPools[String(threshold)];\n      thresholdPool.eligibleDrafts += 1;\n      thresholdPool.eligibleByStrategy[strategy.id] += 1;\n      insertTop(thresholdPool.overall, draft, THRESHOLD_KEEP_OVERALL);\n      insertTop(thresholdPool.byStrategy[strategy.id], draft, THRESHOLD_KEEP_PER_STRATEGY);\n    }\n    roomResults.push(draft);`,
-  'collect threshold-qualified drafts'
+  `    globalScores.push(draft.modelScore);\n    for (const threshold of AVAILABILITY_THRESHOLDS) {\n      const thresholdPool = thresholdPools[String(threshold)];\n      thresholdPool.attemptedDrafts += 1;\n      const thresholdSimulation = threshold === 0\n        ? simulation\n        : simulateStrategy(strategy, roomIndex, scenario, board, threshold);\n      const thresholdDraft = threshold === 0\n        ? draft\n        : scoreDraft(strategy, roomIndex, scenario, thresholdSimulation);\n      if (threshold > 0) thresholdDraft.id = \`${'${thresholdDraft.id}'}-floor-${'${threshold}'}\`;\n      if (thresholdDraft.weakestAvailability * 100 + 1e-9 < threshold) continue;\n      thresholdPool.eligibleDrafts += 1;\n      thresholdPool.eligibleByStrategy[strategy.id] += 1;\n      insertTop(thresholdPool.overall, thresholdDraft, THRESHOLD_KEEP_OVERALL);\n      insertTop(thresholdPool.byStrategy[strategy.id], thresholdDraft, THRESHOLD_KEEP_PER_STRATEGY);\n    }\n    roomResults.push(draft);`,
+  'run threshold-aware policy variants'
 );
 
 replaceOnce(
   'const payload = {\n',
-  `const thresholdResults = {};\nfor (const threshold of AVAILABILITY_THRESHOLDS) {\n  const pool = thresholdPools[String(threshold)];\n  const thresholdOverall = diverseTop(pool.overall, DISPLAY_OVERALL, 3).map(cleanDraft);\n  const thresholdByStrategy = {};\n  thresholdOverall.forEach((draft, index) => { draft.thresholdRank = index + 1; });\n  for (const strategy of STRATEGIES) {\n    thresholdByStrategy[strategy.id] = diverseTop(pool.byStrategy[strategy.id], DISPLAY_PER_STRATEGY).map(cleanDraft);\n    thresholdByStrategy[strategy.id].forEach((draft, index) => { draft.strategyThresholdRank = index + 1; });\n  }\n  thresholdResults[String(threshold)] = {\n    threshold,\n    eligibleDrafts: pool.eligibleDrafts,\n    eligibleByStrategy: pool.eligibleByStrategy,\n    overall: thresholdOverall,\n    byStrategy: thresholdByStrategy\n  };\n}\n\nconst defaultThresholdResult = thresholdResults[String(DEFAULT_AVAILABILITY_THRESHOLD)];\nif (!defaultThresholdResult || defaultThresholdResult.overall.length < 6) {\n  throw new Error(\`The default \${DEFAULT_AVAILABILITY_THRESHOLD}% availability floor produced only \${defaultThresholdResult?.overall.length || 0} ranked drafts.\`);\n}\n\nconst payload = {\n`,
+  `const thresholdResults = {};\nfor (const threshold of AVAILABILITY_THRESHOLDS) {\n  const pool = thresholdPools[String(threshold)];\n  const thresholdOverall = diverseTop(pool.overall, DISPLAY_OVERALL, 3).map(cleanDraft);\n  const thresholdByStrategy = {};\n  thresholdOverall.forEach((draft, index) => { draft.thresholdRank = index + 1; });\n  for (const strategy of STRATEGIES) {\n    thresholdByStrategy[strategy.id] = diverseTop(pool.byStrategy[strategy.id], DISPLAY_PER_STRATEGY).map(cleanDraft);\n    thresholdByStrategy[strategy.id].forEach((draft, index) => { draft.strategyThresholdRank = index + 1; });\n  }\n  thresholdResults[String(threshold)] = {\n    threshold,\n    attemptedDrafts: pool.attemptedDrafts,\n    eligibleDrafts: pool.eligibleDrafts,\n    eligibleByStrategy: pool.eligibleByStrategy,\n    overall: thresholdOverall,\n    byStrategy: thresholdByStrategy\n  };\n}\n\nconst defaultThresholdResult = thresholdResults[String(DEFAULT_AVAILABILITY_THRESHOLD)];\nif (!defaultThresholdResult || defaultThresholdResult.overall.length < 6) {\n  throw new Error(\`The default \${DEFAULT_AVAILABILITY_THRESHOLD}% availability floor produced only \${defaultThresholdResult?.overall.length || 0} ranked drafts from \${defaultThresholdResult?.eligibleDrafts || 0} eligible paths.\`);\n}\n\nconst payload = {\n`,
   'build threshold result indexes'
+);
+
+replaceOnce(
+  '    totalCompletedDrafts: ROOMS * STRATEGIES.length,',
+  '    totalCompletedDrafts: ROOMS * STRATEGIES.length * AVAILABILITY_THRESHOLDS.length,\n    baseStrategyDrafts: ROOMS * STRATEGIES.length,',
+  'actual completed path count'
 );
 
 replaceOnce(
@@ -51,4 +93,4 @@ replaceOnce(
 );
 
 fs.writeFileSync(outputPath, source);
-console.log(`Added availability-floor indexes ${configuredThresholds.join(', ')} to ${outputPath}; default ${configuredDefault}%.`);
+console.log(`Added threshold-aware draft variants for ${configuredThresholds.join(', ')}% floors to ${outputPath}; default ${configuredDefault}%.`);
