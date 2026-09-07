@@ -15,7 +15,11 @@
   const num = (value, digits = 0) => Number.isFinite(Number(value))
     ? Number(value).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
     : '—';
-  const realism = value => value === 'Realistic' ? 'realistic' : value === 'Aggressive' ? 'aggressive' : 'dream';
+  const realism = value => value === 'Conservative'
+    ? 'realistic'
+    : value === 'Value-dependent'
+      ? 'aggressive'
+      : 'dream';
 
   function pickRow(pick) {
     const probability = Number(pick.availability);
@@ -28,9 +32,14 @@
     </li>`;
   }
 
+  function displayedRank(draft, index) {
+    if (active === 'overall') return draft.overallRank || index + 1;
+    if (active === 'ceiling') return draft.ceilingRank || index + 1;
+    return draft.strategyRank || index + 1;
+  }
+
   function draftCard(draft, index) {
-    const filtered = active !== 'overall';
-    const rank = filtered ? draft.strategyRank || index + 1 : draft.overallRank || index + 1;
+    const rank = displayedRank(draft, index);
     const firstSix = draft.picks.slice(0, 6)
       .map(pick => `<span>${esc(pick.name)} <small>${esc(pick.pos)}</small></span>`).join('');
     return `<article class="simulation-draft-card" data-simulation-draft="${esc(draft.id)}">
@@ -40,10 +49,10 @@
         <span class="simulation-realism ${realism(draft.realism)}">${esc(draft.realism)}</span>
       </header>
       <div class="simulation-score-grid">
-        <span><b>${num(draft.modelScore, 1)}</b><small>Model score</small></span>
-        <span><b>${num(draft.percentile, 1)}%</b><small>Simulation percentile</small></span>
+        <span><b>${num(draft.modelScore, 1)}</b><small>Practical score</small></span>
+        <span><b>${num(draft.percentile, 1)}%</b><small>Conservative percentile</small></span>
         <span><b>${num(draft.weeklyExpected, 1)}</b><small>Expected pts/week</small></span>
-        <span><b>${num(draft.plausibility, 1)}%</b><small>Path plausibility</small></span>
+        <span><b>${num(draft.weakestAvailability, 1)}%</b><small>Lowest pick chance</small></span>
       </div>
       <div class="simulation-range" aria-label="Projected weekly starter range">
         <span><small>Floor</small><b>${num(draft.weeklyFloor, 1)}</b></span>
@@ -52,8 +61,8 @@
       </div>
       <div class="simulation-headline-picks" aria-label="First six selections">${firstSix}</div>
       <div class="simulation-draft-flags">
-        <span>${draft.fallerCount} value faller${draft.fallerCount === 1 ? '' : 's'}</span>
-        <span>${draft.longShotCount} long-shot${draft.longShotCount === 1 ? '' : 's'}</span>
+        <span>${draft.sub15Count} pick${draft.sub15Count === 1 ? '' : 's'} below 15%</span>
+        <span>${draft.longShotCount} pick${draft.longShotCount === 1 ? '' : 's'} below 10%</span>
         <span>${draft.reachCount} material reach${draft.reachCount === 1 ? '' : 'es'}</span>
       </div>
       <details class="simulation-picks-details" ${index === 0 ? 'open' : ''}>
@@ -63,8 +72,14 @@
     </article>`;
   }
 
+  function rowsForActiveFilter() {
+    if (active === 'overall') return data.overall || [];
+    if (active === 'ceiling') return data.ceiling || [];
+    return data.byStrategy?.[active] || [];
+  }
+
   function renderDrafts() {
-    const rows = active === 'overall' ? data.overall : data.byStrategy?.[active] || [];
+    const rows = rowsForActiveFilter();
     drafts.innerHTML = rows.length
       ? rows.map(draftCard).join('')
       : '<div class="simulation-empty"><b>No ranked drafts are available.</b><span>The next data refresh will rebuild this tab.</span></div>';
@@ -73,8 +88,9 @@
   function renderFilters() {
     const summaryById = new Map(data.strategySummary.map(row => [row.id, row]));
     const button = (id, label, count) => `<button class="simulation-filter ${active === id ? 'active' : ''}" type="button" data-simulation-filter="${esc(id)}" aria-pressed="${active === id}">${esc(label)}<span>${num(count)}</span></button>`;
-    filters.innerHTML = button('overall', 'Overall best', data.overall.length)
-      + Object.keys(data.byStrategy).map(id => button(id, summaryById.get(id)?.shortLabel || id, data.byStrategy[id].length)).join('');
+    filters.innerHTML = button('overall', 'Best practical', data.overall.length)
+      + Object.keys(data.byStrategy).map(id => button(id, summaryById.get(id)?.shortLabel || id, data.byStrategy[id].length)).join('')
+      + button('ceiling', 'Ceiling outcomes', data.ceiling?.length || 0);
   }
 
   function choose(id) {
@@ -112,7 +128,7 @@
   const props = Number(m.marketPropPlayers || 0) > 0
     ? `${num(m.marketPropPlayers)} players had market-prop inputs in this run.`
     : 'No player-prop market feed was available in this run, so rankings use the current projection ensemble, floors, ceilings, consensus ranks, and exact-format ADP.';
-  method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(props)}</p><small>These are model-generated outcomes, not promises that every listed player will be available. “Best in room” compares the seven strategy policies on the same simulated board.</small>`;
+  method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(m.displayPolicy || '')}</p><p>${esc(props)}</p><small>Each percentage is that player’s estimated availability at one specific pick. It is not a literal joint probability for the entire 16-player roster. The default list now prevents several low-probability falls from being stacked into the same recommended team; those extreme rooms are shown separately under Ceiling outcomes.</small>`;
 
   filters.addEventListener('click', event => {
     const target = event.target.closest('[data-simulation-filter]');
