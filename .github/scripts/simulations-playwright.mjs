@@ -3,6 +3,7 @@ import { chromium } from 'playwright';
 const siteUrl = process.env.SITE_URL || 'http://127.0.0.1:4173/';
 const expectedPicks = [9, 20, 37, 48, 65, 76, 93, 104, 121, 132, 149, 160, 177, 188, 205, 216];
 const expectedThresholds = [0, 10, 20, 35, 50];
+const expectedFloorMaxRound = 12;
 const checks = [];
 
 function assert(value, label, details = '') {
@@ -23,10 +24,16 @@ function validateDraft(draft, minimum = 0) {
   assert((counts.QB || 0) >= 1 && (counts.RB || 0) >= 2 && (counts.WR || 0) >= 2 && (counts.TE || 0) >= 1, `${draft.id} fills QB, 2 RB, 2 WR, and TE`);
   assert((counts.DEF || 0) === 1 && (counts.K || 0) === 1, `${draft.id} contains exactly one defense and kicker`);
   assert(draft.picks[14].pos === 'DEF' && draft.picks[15].pos === 'K', `${draft.id} reserves Rounds 15 and 16 for DEF and K`);
-  assert(Number.isFinite(draft.modelScore) && Number.isFinite(draft.weeklyExpected) && Number.isFinite(draft.weakestAvailability), `${draft.id} has finite ranking and availability metrics`);
-  assert(draft.weakestAvailability + 0.001 >= minimum, `${draft.id} meets the ${minimum}% minimum availability floor`, `lowest=${draft.weakestAvailability}`);
-  const skillPicks = draft.picks.filter(pick => !['DEF', 'K'].includes(pick.pos));
-  assert(skillPicks.every(pick => Number(pick.availability) + 0.001 >= minimum), `${draft.id} has no individual skill pick below ${minimum}%`);
+  assert(Number.isFinite(draft.modelScore) && Number.isFinite(draft.weeklyExpected), `${draft.id} has finite ranking metrics`);
+  assert(Number.isFinite(draft.thresholdMinimumAvailability), `${draft.id} has a finite core-pick minimum`);
+  assert(draft.thresholdMinimumAvailability + 0.001 >= minimum, `${draft.id} meets the ${minimum}% core availability floor`, `core minimum=${draft.thresholdMinimumAvailability}`);
+  const coreSkillPicks = draft.picks.filter(pick =>
+    pick.round <= expectedFloorMaxRound && !['DEF', 'K'].includes(pick.pos)
+  );
+  assert(coreSkillPicks.length === expectedFloorMaxRound, `${draft.id} has ${expectedFloorMaxRound} threshold-covered core picks`);
+  assert(coreSkillPicks.every(pick => Number(pick.availability) + 0.001 >= minimum), `${draft.id} has no Round 1–${expectedFloorMaxRound} skill pick below ${minimum}%`);
+  const computedMinimum = Math.min(...coreSkillPicks.map(pick => Number(pick.availability)));
+  assert(Math.abs(computedMinimum - draft.thresholdMinimumAvailability) <= 0.11, `${draft.id} reports the correct core minimum`, `computed=${computedMinimum}, reported=${draft.thresholdMinimumAvailability}`);
 }
 
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
@@ -43,16 +50,18 @@ try {
   await page.waitForFunction(() => Boolean(window.simulatedDrafts), null, { timeout: 60000 });
 
   const payload = await page.evaluate(() => window.simulatedDrafts);
-  assert(payload.meta.totalCompletedDrafts >= 35000, 'at least 35,000 complete strategy drafts were simulated');
+  assert(payload.meta.totalCompletedDrafts >= 100000, 'at least 100,000 threshold-aware strategy paths were simulated');
   assert(payload.meta.rooms >= 5000, 'simulation covers at least 5,000 independent draft rooms');
   assert(payload.meta.strategies >= 7, 'seven distinct strategies are represented');
   assert(payload.meta.defaultAvailabilityThreshold === 35, '35% is the default minimum availability floor');
+  assert(payload.meta.availabilityFloorMaxRound === expectedFloorMaxRound, 'availability floor applies through Round 12');
   assert(JSON.stringify(payload.meta.availabilityThresholds) === JSON.stringify(expectedThresholds), 'payload exposes 0%, 10%, 20%, 35%, and 50% floors');
   assert(Object.keys(payload.thresholds || {}).length === expectedThresholds.length, 'every availability floor has a precomputed result bucket');
 
   for (const threshold of expectedThresholds) {
     const bucket = payload.thresholds[String(threshold)];
     assert(Boolean(bucket), `${threshold}% threshold bucket exists`);
+    assert(bucket.maxRound === expectedFloorMaxRound, `${threshold}% threshold is scoped through Round 12`);
     assert(Number.isFinite(bucket.eligibleDrafts), `${threshold}% threshold reports its eligible draft count`);
     assert(bucket.overall.length <= 12, `${threshold}% threshold limits the overall display list`);
     bucket.overall.forEach(draft => validateDraft(draft, threshold));
@@ -61,7 +70,8 @@ try {
 
   const defaultBucket = payload.thresholds['35'];
   assert(defaultBucket.overall.length >= 6, '35% floor contains at least six ranked overall drafts');
-  assert(payload.overall.every(draft => draft.weakestAvailability >= 35), 'backward-compatible overall list also uses the 35% floor');
+  assert(payload.overall.every(draft => draft.thresholdMinimumAvailability >= 35), 'backward-compatible overall list also uses the 35% core floor');
+  assert(payload.overall.some(draft => draft.picks.slice(12, 14).some(pick => pick.availability < 35)), 'late bench picks may fall below 35% without weakening the core guarantee');
   assert(payload.ceiling.every(draft => draft.realism === 'Ceiling only'), 'extreme outcomes remain isolated in the ceiling list');
 
   const byStrategy = defaultBucket.byStrategy;
@@ -76,10 +86,15 @@ try {
   await page.waitForSelector('.simulation-draft-card');
   assert(await page.locator('.simulation-threshold').count() === expectedThresholds.length, 'UI renders five minimum-availability thresholds');
   assert(await page.locator('[data-availability-threshold="35"]').getAttribute('aria-pressed') === 'true', '35% floor is selected by default');
-  assert((await page.locator('#simulation-threshold-summary').innerText()).includes('at or above 35%'), 'summary explains the active 35% floor');
+  const summaryText = await page.locator('#simulation-threshold-summary').innerText();
+  assert(summaryText.includes('Rounds 1–12') && summaryText.includes('at or above 35%'), 'summary explains the active 35% core-round floor');
+  assert(summaryText.includes('late bench exceptions'), 'summary explains the Round 13–14 exemption');
   assert(await page.locator('.simulation-draft-card').count() === defaultBucket.overall.length, 'default UI renders the 35% overall list');
   const defaultIds = await page.locator('.simulation-draft-card').evaluateAll(cards => cards.map(card => card.dataset.simulationDraft));
   assert(defaultIds.every(id => defaultBucket.overall.some(draft => draft.id === id)), 'default cards all come from the 35% bucket');
+  const displayedCoreMins = await page.locator('.simulation-score-grid span:nth-child(4) b').allInnerTexts();
+  assert(displayedCoreMins.every(value => Number(value.replace('%', '')) >= 35), 'every default card visibly reports a core minimum of at least 35%');
+  assert((await page.locator('.simulation-pick-list').first().innerText()).includes('late-bench exception'), 'expanded roster labels late bench exemptions explicitly');
 
   await page.locator('[data-availability-threshold="20"]').click();
   await page.waitForFunction(() => document.querySelector('[data-availability-threshold="20"]')?.getAttribute('aria-pressed') === 'true');
@@ -96,7 +111,7 @@ try {
   if (fiftyCount) {
     assert(await page.locator('.simulation-draft-card').count() === fiftyCount, '50% floor renders its stricter ranked drafts');
     const lowestValues = await page.locator('.simulation-score-grid span:nth-child(4) b').allInnerTexts();
-    assert(lowestValues.every(value => Number(value.replace('%', '')) >= 50), 'every visible 50% card reports a lowest skill-pick chance of at least 50%');
+    assert(lowestValues.every(value => Number(value.replace('%', '')) >= 50), 'every visible 50% card reports a core minimum of at least 50%');
   } else {
     assert(await page.locator('.simulation-empty').count() === 1, '50% floor clearly explains when no stored drafts qualify');
   }
