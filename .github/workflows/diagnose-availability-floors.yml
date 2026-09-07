@@ -1,0 +1,20 @@
+name: Diagnose availability floor feasibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/diagnose-availability-floors.mjs
+      - .github/workflows/diagnose-availability-floors.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .github/scripts/diagnose-availability-floors.mjs
