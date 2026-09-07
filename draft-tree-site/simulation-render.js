@@ -12,6 +12,7 @@
   const badge = document.querySelector('#simulation-count-badge');
   let active = 'overall';
   let minimumAvailability = Number(data?.meta?.defaultAvailabilityThreshold ?? 35);
+  const floorMaxRound = Number(data?.meta?.availabilityFloorMaxRound ?? 12);
 
   const esc = value => String(value ?? '')
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -28,6 +29,7 @@
   function thresholdBucket() {
     return data?.thresholds?.[String(minimumAvailability)] || {
       threshold: minimumAvailability,
+      maxRound: floorMaxRound,
       eligibleDrafts: data?.overall?.length || 0,
       eligibleByStrategy: {},
       overall: data?.overall || [],
@@ -35,14 +37,30 @@
     };
   }
 
+  function corePicks(draft) {
+    return (draft.picks || []).filter(pick =>
+      pick.round <= floorMaxRound && !['DEF', 'K'].includes(pick.pos)
+    );
+  }
+
+  function countCoreBelow(draft, threshold) {
+    return corePicks(draft).filter(pick => Number(pick.availability) < threshold).length;
+  }
+
   function pickRow(pick) {
     const probability = Number(pick.availability);
     const probabilityClass = probability < 10 ? 'longshot' : probability < 30 ? 'faller' : '';
     const lineupClass = String(pick.role).startsWith('BN') ? 'bench' : 'starter';
     const specialist = pick.pos === 'DEF' || pick.pos === 'K';
-    const market = specialist
-      ? '<b>Final-round slot</b><small>Reserved by roster rule</small>'
-      : `<b>ADP ${pick.adp === null ? '—' : num(pick.adp, 1)}</b><small class="${probabilityClass}">${num(probability, 1)}% available</small>`;
+    const lateBenchException = !specialist && pick.round > floorMaxRound;
+    let market;
+    if (specialist) {
+      market = '<b>Final-round slot</b><small>Reserved by roster rule</small>';
+    } else if (lateBenchException) {
+      market = `<b>ADP ${pick.adp === null ? '—' : num(pick.adp, 1)}</b><small class="${probabilityClass}">${num(probability, 1)}% · late-bench exception</small>`;
+    } else {
+      market = `<b>ADP ${pick.adp === null ? '—' : num(pick.adp, 1)}</b><small class="${probabilityClass}">${num(probability, 1)}% available</small>`;
+    }
     return `<li class="simulation-pick ${lineupClass}">
       <span class="simulation-pick-round">R${pick.round}<small>#${pick.overall}</small></span>
       <span class="simulation-pick-player"><b>${esc(pick.name)}</b><small>${esc(pick.pos)} · ${esc(pick.team || 'FA')} · ${esc(pick.role)}</small></span>
@@ -60,6 +78,9 @@
     const rank = displayedRank(draft, index);
     const firstSix = draft.picks.slice(0, 6)
       .map(pick => `<span>${esc(pick.name)} <small>${esc(pick.pos)}</small></span>`).join('');
+    const coreMinimum = Number(draft.thresholdMinimumAvailability ?? draft.weakestAvailability);
+    const coreBelow15 = countCoreBelow(draft, 15);
+    const coreBelow10 = countCoreBelow(draft, 10);
     return `<article class="simulation-draft-card" data-simulation-draft="${esc(draft.id)}">
       <header class="simulation-draft-header">
         <span class="simulation-draft-rank">#${rank}</span>
@@ -70,7 +91,7 @@
         <span><b>${num(draft.modelScore, 1)}</b><small>Practical score</small></span>
         <span><b>${num(draft.percentile, 1)}%</b><small>All-simulation percentile</small></span>
         <span><b>${num(draft.weeklyExpected, 1)}</b><small>Expected pts/week</small></span>
-        <span><b>${num(draft.weakestAvailability, 1)}%</b><small>Lowest skill-pick chance</small></span>
+        <span><b>${num(coreMinimum, 1)}%</b><small>Lowest R1–${floorMaxRound} pick chance</small></span>
       </div>
       <div class="simulation-range" aria-label="Projected weekly starter range">
         <span><small>Floor</small><b>${num(draft.weeklyFloor, 1)}</b></span>
@@ -79,8 +100,8 @@
       </div>
       <div class="simulation-headline-picks" aria-label="First six selections">${firstSix}</div>
       <div class="simulation-draft-flags">
-        <span>${draft.sub15Count} skill pick${draft.sub15Count === 1 ? '' : 's'} below 15%</span>
-        <span>${draft.longShotCount} skill pick${draft.longShotCount === 1 ? '' : 's'} below 10%</span>
+        <span>${coreBelow15} core pick${coreBelow15 === 1 ? '' : 's'} below 15%</span>
+        <span>${coreBelow10} core pick${coreBelow10 === 1 ? '' : 's'} below 10%</span>
         <span>${draft.reachCount} material reach${draft.reachCount === 1 ? '' : 'es'}</span>
       </div>
       <details class="simulation-picks-details" ${index === 0 ? 'open' : ''}>
@@ -102,7 +123,7 @@
     if (!rows.length) {
       const copy = active === 'ceiling'
         ? 'No isolated ceiling outcomes are available in this run.'
-        : `No stored ${active === 'overall' ? 'overall' : active.replaceAll('_', ' ')} drafts met a ${minimumAvailability}% minimum availability floor. Try the next lower threshold.`;
+        : `No stored ${active === 'overall' ? 'overall' : active.replaceAll('_', ' ')} drafts met a ${minimumAvailability}% minimum through Round ${floorMaxRound}. Try the next lower threshold.`;
       drafts.innerHTML = `<div class="simulation-empty"><b>No matching drafts.</b><span>${esc(copy)}</span></div>`;
       return;
     }
@@ -137,7 +158,7 @@
     if (thresholdSummary) {
       thresholdSummary.textContent = ceilingActive
         ? 'Availability floors are intentionally paused for the separate ceiling-outcomes list.'
-        : `${num(bucket.eligibleDrafts || 0)} of ${num(data.meta.totalCompletedDrafts || 0)} completed strategy drafts kept every QB, RB, WR, and TE pick at or above ${minimumAvailability}%. DEF and K are excluded.`;
+        : `${num(bucket.eligibleDrafts || 0)} threshold-aware drafts kept every QB, RB, WR, and TE selection in Rounds 1–${floorMaxRound} at or above ${minimumAvailability}%. Rounds ${floorMaxRound + 1}–14 are late bench exceptions; DEF and K are excluded.`;
     }
   }
 
@@ -146,7 +167,7 @@
     const props = Number(m.marketPropPlayers || 0) > 0
       ? `${num(m.marketPropPlayers)} players had market-prop inputs in this run.`
       : 'No player-prop market feed was available in this run, so rankings use the current projection ensemble, floors, ceilings, consensus ranks, and exact-format ADP.';
-    method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(m.displayPolicy || '')}</p><p>${esc(props)}</p><small>The availability-floor control is a hard filter: at ${minimumAvailability}%, every displayed QB, RB, WR, and TE had at least a ${minimumAvailability}% modeled chance of reaching that exact pick. It is not a literal joint probability for the entire roster. DEF and K are omitted from this check because those positions are deliberately reserved for the final two rounds.</small>`;
+    method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(m.displayPolicy || '')}</p><p>${esc(props)}</p><small>The availability-floor control is a hard filter through Round ${floorMaxRound}: at ${minimumAvailability}%, every displayed QB, RB, WR, and TE selected in Rounds 1–${floorMaxRound} had at least a ${minimumAvailability}% modeled chance of reaching that exact pick. Rounds ${floorMaxRound + 1}–14 are exempt because they are late bench dart throws and the current ADP source does not provide enough deeper skill players for a meaningful 35% floor there. DEF and K are also excluded.</small>`;
   }
 
   function chooseFilter(id) {
@@ -173,7 +194,7 @@
 
   const m = data.meta;
   badge.textContent = num(m.totalCompletedDrafts);
-  meta.innerHTML = `<span><b>${num(m.totalCompletedDrafts)}</b><small>complete drafts</small></span>
+  meta.innerHTML = `<span><b>${num(m.totalCompletedDrafts)}</b><small>complete draft paths</small></span>
     <span><b>${num(m.rooms)}</b><small>independent rooms</small></span>
     <span><b>${num(m.strategies)}</b><small>strategies per room</small></span>
     <span><b>Pick ${num(m.slot)}</b><small>${esc(m.teams)}-team ${esc(m.scoring)}</small></span>`;
