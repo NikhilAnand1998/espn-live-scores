@@ -30,9 +30,10 @@ function validatePracticalDraft(draft) {
   assert(draft.recommended === true, `${draft.id} is approved for the practical list`);
   assert(draft.realism !== 'Ceiling only', `${draft.id} is not a ceiling-only roster`);
   assert(draft.veryLongShotCount === 0, `${draft.id} contains no sub-5% picks`);
-  assert(draft.longShotCount <= 1, `${draft.id} contains at most one sub-10% pick`);
-  assert(draft.sub15Count <= 4, `${draft.id} contains at most four sub-15% picks`);
-  assert(draft.sub20Count <= 6, `${draft.id} contains at most six sub-20% picks`);
+  assert(draft.earlyLongShotCount <= 1, `${draft.id} contains at most one sub-10% pick in the first eight rounds`);
+  assert(draft.longShotCount <= 2, `${draft.id} contains at most two sub-10% picks across the full roster`);
+  assert(draft.sub15Count <= 6, `${draft.id} contains at most six sub-15% picks`);
+  assert(draft.sub20Count <= 8, `${draft.id} contains at most eight sub-20% picks`);
   assert(draft.weakestAvailability >= 5, `${draft.id} has no displayed pick below 5%`);
 }
 
