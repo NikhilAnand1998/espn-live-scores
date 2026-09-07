@@ -5,6 +5,8 @@ if (!inputPath || !outputPath) {
   throw new Error('Usage: node add-simulation-availability-thresholds.mjs <input-generator> <output-generator>');
 }
 
+const configuredThresholds = [0, 10, 20, 35, 50];
+const configuredDefault = 35;
 let source = fs.readFileSync(inputPath, 'utf8');
 
 function replaceOnce(before, after, label) {
@@ -14,7 +16,7 @@ function replaceOnce(before, after, label) {
 
 replaceOnce(
   'const DISPLAY_OVERALL = 12;\n',
-  `const DISPLAY_OVERALL = 12;\nconst AVAILABILITY_THRESHOLDS = [0, 10, 20, 35, 50];\nconst DEFAULT_AVAILABILITY_THRESHOLD = 35;\nconst THRESHOLD_KEEP_OVERALL = 120;\nconst THRESHOLD_KEEP_PER_STRATEGY = 36;\n`,
+  `const DISPLAY_OVERALL = 12;\nconst AVAILABILITY_THRESHOLDS = [${configuredThresholds.join(', ')}];\nconst DEFAULT_AVAILABILITY_THRESHOLD = ${configuredDefault};\nconst THRESHOLD_KEEP_OVERALL = 120;\nconst THRESHOLD_KEEP_PER_STRATEGY = 36;\n`,
   'threshold constants'
 );
 
@@ -49,4 +51,4 @@ replaceOnce(
 );
 
 fs.writeFileSync(outputPath, source);
-console.log(`Added availability-floor indexes ${AVAILABILITY_THRESHOLDS.join(', ')} to ${outputPath}; default ${DEFAULT_AVAILABILITY_THRESHOLD}%.`);
+console.log(`Added availability-floor indexes ${configuredThresholds.join(', ')} to ${outputPath}; default ${configuredDefault}%.`);
