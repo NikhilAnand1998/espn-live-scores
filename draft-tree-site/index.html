@@ -75,7 +75,7 @@
         <header class="simulation-hero">
           <div class="eyebrow">MONTE CARLO STRATEGY LAB</div>
           <h1>Best practical drafts found across thousands of simulations.</h1>
-          <p>Every strategy drafts from your exact snake selections—9, 20, 37, 48, and onward. The default rankings now heavily penalize stacked low-probability falls instead of letting one unusually lucky room dominate the recommendations.</p>
+          <p>Every strategy drafts from your exact snake selections—9, 20, 37, 48, and onward. Set a minimum availability floor so every displayed QB, RB, WR, and TE had at least that modeled chance of reaching your exact pick.</p>
           <div class="simulation-meta" id="simulation-meta" aria-label="Simulation details"></div>
         </header>
 
@@ -90,9 +90,19 @@
         <section class="simulation-section" aria-labelledby="ranked-drafts-heading">
           <div class="simulation-section-heading">
             <h2 id="ranked-drafts-heading">Best practical drafts</h2>
-            <p>The default list excludes sub-5% picks and prevents several sub-10%, sub-15%, or sub-20% fallers from being combined. Extreme upside rooms remain available under Ceiling outcomes.</p>
+            <p>Use the availability floor to decide how conservative the examples should be. A 35% floor means no displayed skill-position pick had less than a 35% modeled chance of reaching you.</p>
           </div>
-          <div class="simulation-filters" id="simulation-filters" aria-label="Filter simulated drafts"></div>
+
+          <section class="simulation-threshold-panel" id="simulation-threshold-panel" aria-labelledby="availability-floor-heading">
+            <div class="simulation-threshold-copy">
+              <h3 id="availability-floor-heading">Minimum availability for every skill pick</h3>
+              <p>Applies to QB, RB, WR, and TE. Defense and kicker are excluded because those slots are deliberately saved for the final two rounds.</p>
+            </div>
+            <div class="simulation-thresholds" id="simulation-thresholds" aria-label="Minimum player availability floor"></div>
+            <p class="simulation-threshold-summary" id="simulation-threshold-summary" aria-live="polite"></p>
+          </section>
+
+          <div class="simulation-filters" id="simulation-filters" aria-label="Filter simulated drafts by strategy"></div>
           <div class="simulation-draft-list" id="simulation-draft-list"></div>
         </section>
 
