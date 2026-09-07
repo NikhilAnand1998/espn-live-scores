@@ -27,9 +27,9 @@ replaceOnce(
 );
 
 replaceOnce(
-  `    const adp = finite(player.adp, 250);\n    const sd = Math.max(1.5, finite(player.sd, 8));`,
-  `    const adp = finite(player.adp, 250);\n    if (!meetsAvailabilityFloor(player, round, minimumAvailability)) continue;\n    const sd = Math.max(1.5, finite(player.sd, 8));`,
-  'candidate availability gate'
+  `    if (!available.has(player.key) || !isEligible(player, rosterCounts, round)) continue;\n    if (strategy.id === 'late_qb' && round < 8 && player.pos === 'QB') continue;\n    if (forcedPosition && player.pos !== forcedPosition) continue;\n    const adp = finite(player.adp, 250);\n    const sd = Math.max(1.5, finite(player.sd, 8));`,
+  `    if (!available.has(player.key) || !isEligible(player, rosterCounts, round)) continue;\n    if (strategy.id === 'late_qb' && round < 8 && player.pos === 'QB') continue;\n    if (forcedPosition && player.pos !== forcedPosition) continue;\n    if (!meetsAvailabilityFloor(player, round, minimumAvailability)) continue;\n    const adp = finite(player.adp, 250);\n    const sd = Math.max(1.5, finite(player.sd, 8));`,
+  'candidate availability gate inside chooseUser'
 );
 
 replaceOnce(
