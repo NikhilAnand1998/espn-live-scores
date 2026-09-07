@@ -13,6 +13,7 @@ on:
       - .github/scripts/finalize-draft-tree-model.mjs
       - .github/scripts/generate-best-simulated-drafts.mjs
       - .github/scripts/tune-simulation-generator.mjs
+      - .github/scripts/add-simulation-availability-thresholds.mjs
       - .github/scripts/patch-actionable-fallers.mjs
       - .github/scripts/ui-adversarial-playwright-v2.mjs
       - .github/scripts/lineup-semantics-playwright.mjs
@@ -30,7 +31,7 @@ permissions:
 jobs:
   review-test-and-publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     container:
       image: mcr.microsoft.com/playwright:v1.55.0-noble
     steps:
@@ -72,13 +73,16 @@ jobs:
         run: node source/.github/scripts/finalize-draft-tree-model.mjs site/data.js
 
       - name: Tune the simulation generator
-        run: node source/.github/scripts/tune-simulation-generator.mjs source/.github/scripts/generate-best-simulated-drafts.mjs /tmp/generate-best-simulated-drafts.mjs
+        run: node source/.github/scripts/tune-simulation-generator.mjs source/.github/scripts/generate-best-simulated-drafts.mjs /tmp/generate-best-simulated-drafts-tuned.mjs
+
+      - name: Add minimum-availability threshold indexes
+        run: node source/.github/scripts/add-simulation-availability-thresholds.mjs /tmp/generate-best-simulated-drafts-tuned.mjs /tmp/generate-best-simulated-drafts-final.mjs
 
       - name: Simulate and rank complete strategy drafts
         env:
-          SIMULATION_ROOMS: 5000
-          SIMULATION_SEED: 20260906
-        run: node /tmp/generate-best-simulated-drafts.mjs site/data.js source/draft-tree-site/engine.js source/draft-tree-site/availability.js site/simulated-drafts.js
+          SIMULATION_ROOMS: 10000
+          SIMULATION_SEED: 20260907
+        run: node /tmp/generate-best-simulated-drafts-final.mjs site/data.js source/draft-tree-site/engine.js source/draft-tree-site/availability.js site/simulated-drafts.js
 
       - name: Assemble the exact site bundle to be tested
         run: |
@@ -86,6 +90,7 @@ jobs:
           cp source/draft-tree-site/style.css site/style.css
           cp source/draft-tree-site/adversarial-tuning.css site/adversarial-tuning.css
           cp source/draft-tree-site/simulations.css site/simulations.css
+          cp source/draft-tree-site/simulation-thresholds.css site/simulation-thresholds.css
           cp source/draft-tree-site/engine.js site/engine.js
           cp source/draft-tree-site/engine-patch.js site/engine-patch.js
           cp source/draft-tree-site/availability.js site/availability.js
@@ -112,7 +117,9 @@ jobs:
           node --check site/simulation-tabs.js
           node --check source/.github/scripts/generate-best-simulated-drafts.mjs
           node --check source/.github/scripts/tune-simulation-generator.mjs
-          node --check /tmp/generate-best-simulated-drafts.mjs
+          node --check source/.github/scripts/add-simulation-availability-thresholds.mjs
+          node --check /tmp/generate-best-simulated-drafts-tuned.mjs
+          node --check /tmp/generate-best-simulated-drafts-final.mjs
           node --check source/.github/scripts/patch-actionable-fallers.mjs
           node --check source/.github/scripts/ui-adversarial-playwright-v2.mjs
           node --check source/.github/scripts/lineup-semantics-playwright.mjs
@@ -145,7 +152,7 @@ jobs:
           SITE_URL: http://127.0.0.1:4173/
         run: node .github/scripts/lineup-semantics-playwright.mjs
 
-      - name: Verify ranked simulation lab locally
+      - name: Verify availability-floor simulation lab locally
         working-directory: source
         env:
           SITE_URL: http://127.0.0.1:4173/
@@ -166,12 +173,12 @@ jobs:
           git config --global --add safe.directory "$PWD"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html style.css adversarial-tuning.css simulations.css engine.js engine-patch.js availability.js model-meta.js app-v2.js lineup-semantics.js simulated-drafts.js simulation-render.js simulation-tabs.js data.js build-id.txt ui-adversarial-report.json .nojekyll
+          git add index.html style.css adversarial-tuning.css simulations.css simulation-thresholds.css engine.js engine-patch.js availability.js model-meta.js app-v2.js lineup-semantics.js simulated-drafts.js simulation-render.js simulation-tabs.js data.js build-id.txt ui-adversarial-report.json .nojekyll
           git add -u
           if git diff --cached --quiet; then
             echo "No site changes to publish."
           else
-            git commit -m "Deploy ranked simulated draft strategy lab"
+            git commit -m "Deploy minimum-availability simulation filters"
             git push origin HEAD:gh-pages
           fi
 
@@ -202,7 +209,7 @@ jobs:
           SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
         run: node .github/scripts/lineup-semantics-playwright.mjs
 
-      - name: Verify ranked simulation lab on public GitHub Pages
+      - name: Verify availability-floor simulation lab on public GitHub Pages
         working-directory: source
         env:
           SITE_URL: https://nikhilanand1998.github.io/espn-live-scores/
