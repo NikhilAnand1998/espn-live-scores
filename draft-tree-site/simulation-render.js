@@ -3,11 +3,15 @@
   const data = window.simulatedDrafts;
   const meta = document.querySelector('#simulation-meta');
   const strategies = document.querySelector('#simulation-strategy-grid');
+  const thresholds = document.querySelector('#simulation-thresholds');
+  const thresholdSummary = document.querySelector('#simulation-threshold-summary');
+  const thresholdPanel = document.querySelector('#simulation-threshold-panel');
   const filters = document.querySelector('#simulation-filters');
   const drafts = document.querySelector('#simulation-draft-list');
   const method = document.querySelector('#simulation-method');
   const badge = document.querySelector('#simulation-count-badge');
   let active = 'overall';
+  let minimumAvailability = Number(data?.meta?.defaultAvailabilityThreshold ?? 35);
 
   const esc = value => String(value ?? '')
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -20,6 +24,16 @@
     : value === 'Value-dependent'
       ? 'aggressive'
       : 'dream';
+
+  function thresholdBucket() {
+    return data?.thresholds?.[String(minimumAvailability)] || {
+      threshold: minimumAvailability,
+      eligibleDrafts: data?.overall?.length || 0,
+      eligibleByStrategy: {},
+      overall: data?.overall || [],
+      byStrategy: data?.byStrategy || {}
+    };
+  }
 
   function pickRow(pick) {
     const probability = Number(pick.availability);
@@ -37,9 +51,9 @@
   }
 
   function displayedRank(draft, index) {
-    if (active === 'overall') return draft.overallRank || index + 1;
+    if (active === 'overall') return draft.thresholdRank || draft.overallRank || index + 1;
     if (active === 'ceiling') return draft.ceilingRank || index + 1;
-    return draft.strategyRank || index + 1;
+    return draft.strategyThresholdRank || draft.strategyRank || index + 1;
   }
 
   function draftCard(draft, index) {
@@ -54,7 +68,7 @@
       </header>
       <div class="simulation-score-grid">
         <span><b>${num(draft.modelScore, 1)}</b><small>Practical score</small></span>
-        <span><b>${num(draft.percentile, 1)}%</b><small>Conservative percentile</small></span>
+        <span><b>${num(draft.percentile, 1)}%</b><small>All-simulation percentile</small></span>
         <span><b>${num(draft.weeklyExpected, 1)}</b><small>Expected pts/week</small></span>
         <span><b>${num(draft.weakestAvailability, 1)}%</b><small>Lowest skill-pick chance</small></span>
       </div>
@@ -77,31 +91,79 @@
   }
 
   function rowsForActiveFilter() {
-    if (active === 'overall') return data.overall || [];
     if (active === 'ceiling') return data.ceiling || [];
-    return data.byStrategy?.[active] || [];
+    const bucket = thresholdBucket();
+    if (active === 'overall') return bucket.overall || [];
+    return bucket.byStrategy?.[active] || [];
   }
 
   function renderDrafts() {
     const rows = rowsForActiveFilter();
-    drafts.innerHTML = rows.length
-      ? rows.map(draftCard).join('')
-      : '<div class="simulation-empty"><b>No ranked drafts are available.</b><span>The next data refresh will rebuild this tab.</span></div>';
+    if (!rows.length) {
+      const copy = active === 'ceiling'
+        ? 'No isolated ceiling outcomes are available in this run.'
+        : `No stored ${active === 'overall' ? 'overall' : active.replaceAll('_', ' ')} drafts met a ${minimumAvailability}% minimum availability floor. Try the next lower threshold.`;
+      drafts.innerHTML = `<div class="simulation-empty"><b>No matching drafts.</b><span>${esc(copy)}</span></div>`;
+      return;
+    }
+    drafts.innerHTML = rows.map(draftCard).join('');
   }
 
   function renderFilters() {
+    const bucket = thresholdBucket();
     const summaryById = new Map(data.strategySummary.map(row => [row.id, row]));
     const button = (id, label, count) => `<button class="simulation-filter ${active === id ? 'active' : ''}" type="button" data-simulation-filter="${esc(id)}" aria-pressed="${active === id}">${esc(label)}<span>${num(count)}</span></button>`;
-    filters.innerHTML = button('overall', 'Best practical', data.overall.length)
-      + Object.keys(data.byStrategy).map(id => button(id, summaryById.get(id)?.shortLabel || id, data.byStrategy[id].length)).join('')
+    filters.innerHTML = button('overall', `Best at ${minimumAvailability}%+`, bucket.overall?.length || 0)
+      + Object.keys(bucket.byStrategy || {}).map(id => button(id, summaryById.get(id)?.shortLabel || id, bucket.byStrategy[id]?.length || 0)).join('')
       + button('ceiling', 'Ceiling outcomes', data.ceiling?.length || 0);
   }
 
-  function choose(id) {
+  function renderThresholds() {
+    if (!thresholds || !data) return;
+    const values = data.meta.availabilityThresholds || Object.keys(data.thresholds || {}).map(Number).sort((a, b) => a - b);
+    const ceilingActive = active === 'ceiling';
+    thresholds.innerHTML = values.map(value => {
+      const bucket = data.thresholds?.[String(value)];
+      const selected = value === minimumAvailability;
+      const label = value === 0 ? 'Any floor' : `${value}%+`;
+      return `<button class="simulation-threshold ${selected ? 'active' : ''}" type="button"
+        data-availability-threshold="${value}" aria-pressed="${selected}" ${ceilingActive ? 'disabled' : ''}>
+        <b>${esc(label)}</b><small>${num(bucket?.eligibleDrafts || 0)} drafts</small>
+      </button>`;
+    }).join('');
+
+    thresholdPanel?.classList.toggle('disabled', ceilingActive);
+    const bucket = thresholdBucket();
+    if (thresholdSummary) {
+      thresholdSummary.textContent = ceilingActive
+        ? 'Availability floors are intentionally paused for the separate ceiling-outcomes list.'
+        : `${num(bucket.eligibleDrafts || 0)} of ${num(data.meta.totalCompletedDrafts || 0)} completed strategy drafts kept every QB, RB, WR, and TE pick at or above ${minimumAvailability}%. DEF and K are excluded.`;
+    }
+  }
+
+  function renderMethod() {
+    const m = data.meta;
+    const props = Number(m.marketPropPlayers || 0) > 0
+      ? `${num(m.marketPropPlayers)} players had market-prop inputs in this run.`
+      : 'No player-prop market feed was available in this run, so rankings use the current projection ensemble, floors, ceilings, consensus ranks, and exact-format ADP.';
+    method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(m.displayPolicy || '')}</p><p>${esc(props)}</p><small>The availability-floor control is a hard filter: at ${minimumAvailability}%, every displayed QB, RB, WR, and TE had at least a ${minimumAvailability}% modeled chance of reaching that exact pick. It is not a literal joint probability for the entire roster. DEF and K are omitted from this check because those positions are deliberately reserved for the final two rounds.</small>`;
+  }
+
+  function chooseFilter(id) {
     active = id;
+    renderThresholds();
     renderFilters();
     renderDrafts();
+    renderMethod();
     document.querySelector('#ranked-drafts-heading')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+
+  function chooseThreshold(value) {
+    minimumAvailability = Number(value);
+    renderThresholds();
+    renderFilters();
+    renderDrafts();
+    renderMethod();
   }
 
   if (!data) {
@@ -129,20 +191,21 @@
     </button>`;
   }).join('');
 
-  const props = Number(m.marketPropPlayers || 0) > 0
-    ? `${num(m.marketPropPlayers)} players had market-prop inputs in this run.`
-    : 'No player-prop market feed was available in this run, so rankings use the current projection ensemble, floors, ceilings, consensus ranks, and exact-format ADP.';
-  method.innerHTML = `<h2>How these drafts are ranked</h2><p>${esc(m.simulationMethod)}</p><p>${esc(m.rankingMethod)}</p><p>${esc(m.displayPolicy || '')}</p><p>${esc(props)}</p><small>Each percentage is that skill player’s estimated availability at one specific pick. It is not a literal joint probability for the entire roster. The default list prevents several low-probability falls from being stacked into the same recommended team; extreme rooms are shown separately under Ceiling outcomes. DEF and K percentages are omitted because those positions are deliberately reserved for the final two rounds.</small>`;
-
   filters.addEventListener('click', event => {
     const target = event.target.closest('[data-simulation-filter]');
-    if (target) choose(target.dataset.simulationFilter);
+    if (target) chooseFilter(target.dataset.simulationFilter);
+  });
+  thresholds?.addEventListener('click', event => {
+    const target = event.target.closest('[data-availability-threshold]');
+    if (target && !target.disabled) chooseThreshold(target.dataset.availabilityThreshold);
   });
   strategies.addEventListener('click', event => {
     const target = event.target.closest('[data-strategy-jump]');
-    if (target) choose(target.dataset.strategyJump);
+    if (target) chooseFilter(target.dataset.strategyJump);
   });
 
+  renderThresholds();
   renderFilters();
   renderDrafts();
+  renderMethod();
 })();
